@@ -1,0 +1,23 @@
+root = "."
+tmp_dir = "tmp"
+i
+[build]
+  # 使用 just build 編譯出 binary
+  cmd = "just build"
+  # 指定編譯後的執行檔路徑
+  bin = "./openclaw"
+  # 包含要監控的副檔名
+  include_ext = ["go", "tpl", "html", "tmpl", "css", "js", "nix", "toml"]
+  # 排除不需要監控的目錄
+  exclude_dir = ["tmp", "vendor", ".git"]
+  # 延遲觸發，避免 rsync 傳輸未完成就開始編譯
+  delay = 1000
+  # 停止舊進程的方式
+  stop_on_error = true
+  log = "air.log"
+
+[log]
+  time = true
+
+[screen]
+  clear_on_rebuild = true

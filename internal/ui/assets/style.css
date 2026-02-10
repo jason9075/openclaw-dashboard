@@ -1,0 +1,256 @@
+:root {
+  /* Polar Night */
+  --nord0: #2E3440;
+  --nord1: #3B4252;
+  --nord2: #434C5E;
+  --nord3: #4C566A;
+  /* Snow Storm */
+  --nord4: #D8DEE9;
+  --nord5: #E5E9F0;
+  --nord6: #ECEFF4;
+  /* Frost */
+  --nord7: #8FBCBB;
+  --nord8: #88C0D0; /* Primary Accent */
+  --nord9: #81A1C1;
+  --nord10: #5E81AC;
+  /* Aurora */
+  --nord11: #BF616A; /* Error */
+  --nord12: #D08770;
+  --nord13: #EBCB8B; /* Warning */
+  --nord14: #A3BE8C; /* Success */
+  --nord15: #B48EAD;
+}
+
+body {
+    background-color: var(--nord0);
+    color: var(--nord6);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 0;
+}
+
+.container {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--nord3);
+}
+
+.header h1 {
+    color: var(--nord8);
+    margin: 0;
+}
+
+.status-online {
+    background-color: var(--nord14);
+    color: var(--nord0);
+    padding: 5px 15px;
+    border-radius: 4px;
+    font-weight: bold;
+}
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 20px;
+    grid-auto-rows: minmax(200px, auto);
+}
+
+.card {
+    background-color: var(--nord1);
+    border: 1px solid var(--nord3);
+    padding: 15px;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+    /* High contrast, no transparency */
+}
+
+.card:hover {
+    background-color: var(--nord2);
+    border-color: var(--nord8);
+}
+
+.card h2 {
+    color: var(--nord4);
+    border-bottom: 1px solid var(--nord3);
+    padding-bottom: 5px;
+    margin-top: 0;
+    font-size: 1.2rem;
+}
+
+/* Panel Sizing (12-column system) */
+.health-panel {
+    grid-column: span 3;
+}
+
+.info-panel {
+    grid-column: span 3;
+}
+
+.costs-panel {
+    grid-column: span 3;
+}
+
+.alerts-panel {
+    grid-column: span 3;
+    border-left: 5px solid var(--nord11);
+}
+
+.sessions-panel {
+    grid-column: span 4;
+}
+
+.kanban-panel {
+    grid-column: span 4;
+}
+
+.git-panel {
+    grid-column: span 4;
+}
+
+.cron-panel {
+    grid-column: span 12;
+}
+
+.footer {
+    margin-top: 40px;
+    text-align: center;
+    color: var(--nord3);
+    border-top: 1px solid var(--nord3);
+    padding-top: 20px;
+}
+
+/* Data Elements */
+.stat-row {
+    padding: 5px 0;
+    border-bottom: 1px solid var(--nord0);
+}
+
+.empty-state {
+    color: var(--nord3);
+    font-style: italic;
+    padding: 10px;
+}
+
+/* Alerts */
+.alert-item {
+    padding: 8px;
+    margin-bottom: 5px;
+    background-color: var(--nord0);
+    border-left: 3px solid var(--nord8);
+}
+.alert-error { border-left-color: var(--nord11); }
+.alert-warning { border-left-color: var(--nord13); }
+
+.alert-time {
+    color: var(--nord3);
+    font-size: 0.85em;
+    margin-right: 10px;
+}
+
+/* Tables */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.data-table th, .data-table td {
+    text-align: left;
+    padding: 8px;
+    border-bottom: 1px solid var(--nord0);
+}
+.data-table th {
+    color: var(--nord4);
+}
+
+/* Todo Items */
+.todo-item {
+    background-color: var(--nord0);
+    padding: 8px;
+    margin-bottom: 5px;
+    border-radius: 2px;
+}
+.priority-high { border-right: 3px solid var(--nord11); }
+.priority-medium { border-right: 3px solid var(--nord13); }
+.todo-status {
+    color: var(--nord9);
+    font-weight: bold;
+    font-size: 0.8em;
+    text-transform: uppercase;
+    margin-right: 5px;
+}
+
+/* Costs */
+.costs-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.cost-card {
+    background-color: var(--nord0);
+    padding: 10px;
+    border-radius: 4px;
+    flex: 1;
+    min-width: 80px;
+    text-align: center;
+}
+
+.cost-label {
+    font-size: 0.8em;
+    color: var(--nord3);
+    display: block;
+}
+
+.cost-value {
+    font-size: 1.2em;
+    font-weight: bold;
+    color: var(--nord7);
+}
+
+/* Git Commits */
+.git-commit {
+    padding: 5px 0;
+    border-bottom: 1px solid var(--nord0);
+    font-family: monospace;
+    font-size: 0.9em;
+}
+
+.commit-hash {
+    color: var(--nord10);
+    margin-right: 8px;
+}
+
+.commit-msg {
+    color: var(--nord4);
+}
+
+code {
+    background-color: var(--nord0);
+    padding: 2px 4px;
+    border-radius: 2px;
+    color: var(--nord7);
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+    .health-panel, .sessions-panel, .kanban-panel, .git-panel {
+        grid-column: span 6;
+    }
+    .alerts-panel {
+        grid-column: span 12;
+    }
+}
+
+@media (max-width: 768px) {
+    .card, .health-panel, .alerts-panel, .sessions-panel, .kanban-panel, .git-panel, .cron-panel {
+        grid-column: span 12;
+    }
+}

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenClaw Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>OpenClaw Dashboard</h1>
+            <div id="status-indicator" class="status-online">Online</div>
+        </header>
+
+        <main class="dashboard-grid">
+            <!-- 1. System Health -->
+            <section class="card health-panel">
+                <h2>System Health</h2>
+                <div id="sys-health-content">Loading...</div>
+            </section>
+
+            <!-- 1.5 System Info -->
+            <section class="card info-panel">
+                <h2>System Info</h2>
+                <div id="sys-info-content">Loading...</div>
+            </section>
+
+            <!-- 2. Alerts -->
+            <section class="card alerts-panel">
+                <h2>Alerts</h2>
+                <div id="alerts-content">No active alerts.</div>
+            </section>
+
+            <!-- 3. Cost Cards -->
+            <section class="card costs-panel">
+                <h2>Infrastructure Costs</h2>
+                <div id="costs-content" class="costs-grid">Loading...</div>
+            </section>
+
+            <!-- 4. Active Sessions -->
+            <section class="card sessions-panel">
+                <h2>Active Sessions</h2>
+                <div id="sessions-content">Loading...</div>
+            </section>
+
+            <!-- 4. Kanban Board -->
+            <section class="card kanban-panel">
+                <h2>Kanban</h2>
+                <div id="kanban-content">Loading...</div>
+            </section>
+
+            <!-- 5. Git Log -->
+            <section class="card git-panel">
+                <h2>Git Log</h2>
+                <div id="git-content">Loading...</div>
+            </section>
+
+             <!-- 6. Cron Jobs -->
+             <section class="card cron-panel">
+                <h2>Cron Jobs</h2>
+                <div id="cron-content">Loading...</div>
+            </section>
+        </main>
+
+        <footer class="footer">
+            <p>OpenClaw Dashboard &copy; 2026</p>
+            <p>Uptime: <span id="uptime-display">--</span></p>
+        </footer>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
