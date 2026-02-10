@@ -1,0 +1,16 @@
+{
+  "id": "dashboard-monitor",
+  "name": "Dashboard Monitor",
+  "description": "Monitor OpenClaw performance and costs via Dashboard API",
+  "version": "1.0.0",
+  "tools": [
+    {
+      "name": "dashboard_get_status",
+      "description": "Fetch real-time status from OpenClaw Dashboard",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}
