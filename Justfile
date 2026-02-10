@@ -46,3 +46,8 @@ sync:
 air:
     air
 
+# Reload Chromium browser
+reload-browser:
+    @echo "Reloading Chromium..."
+    @xdotool search --onlyvisible --class chromium windowactivate --sync key F5 || true
+
