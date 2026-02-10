@@ -9,17 +9,23 @@ import (
 )
 
 type SystemStats struct {
-	LoadAverage string `json:"load_average"`
-	MemoryUsage string `json:"memory_usage"`
-	Uptime      string `json:"uptime"`
-	Hostname    string `json:"hostname"`
-	Kernel      string `json:"kernel"`
-	DiskUsage   string `json:"disk_usage"`
+	LoadAverage    string `json:"load_average"`
+	MemoryUsage    string `json:"memory_usage"`
+	Uptime         string `json:"uptime"`
+	Hostname       string `json:"hostname"`
+	Kernel         string `json:"kernel"`
+	DiskUsage      string `json:"disk_usage"`
 	CompactionMode string `json:"compaction_mode"`
+	GatewayStatus  string `json:"gateway_status"`
+	GatewayPID     int    `json:"gateway_pid"`
+	GatewayUptime  string `json:"gateway_uptime"`
+	GatewayMemory  string `json:"gateway_memory"`
 }
 
 func GetSystemStats() (SystemStats, error) {
-	stats := SystemStats{}
+	stats := SystemStats{
+		GatewayStatus: "offline",
+	}
 
 	// Hostname
 	hostname, _ := os.Hostname()
@@ -72,6 +78,38 @@ func GetSystemStats() (SystemStats, error) {
 			fields := strings.Fields(lines[1])
 			if len(fields) >= 5 {
 				stats.DiskUsage = fmt.Sprintf("%s / %s (%s)", fields[2], fields[1], fields[4])
+			}
+		}
+	}
+
+	// ── Gateway health (Learned from script) ──
+	// Find PID for openclaw-gateway (might be named 'openclaw' or match command line)
+	// The script used: ps aux | grep 'openclaw-gateway' | grep -v grep | awk '{print $2}'
+	// We'll search for 'openclaw' or 'openclaw-gateway'
+	pgrep, err := exec.Command("pgrep", "-f", "openclaw").Output()
+	if err == nil {
+		pids := strings.Fields(string(pgrep))
+		if len(pids) > 0 {
+			pid := pids[0] // Take first matching PID
+			pidInt, _ := strconv.Atoi(pid)
+			stats.GatewayPID = pidInt
+			stats.GatewayStatus = "online"
+
+			// Get etime and rss
+			ps, err := exec.Command("ps", "-p", pid, "-o", "etime=,rss=").Output()
+			if err == nil {
+				fields := strings.Fields(string(ps))
+				if len(fields) >= 2 {
+					stats.GatewayUptime = fields[0]
+					rssKB, _ := strconv.ParseFloat(fields[1], 64)
+					if rssKB > 1048576 {
+						stats.GatewayMemory = fmt.Sprintf("%.1f GB", rssKB/1048576)
+					} else if rssKB > 1024 {
+						stats.GatewayMemory = fmt.Sprintf("%.0f MB", rssKB/1024)
+					} else {
+						stats.GatewayMemory = fmt.Sprintf("%.0f KB", rssKB)
+					}
+				}
 			}
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -95,6 +96,16 @@ type Skill struct {
 	Description string `json:"description"`
 }
 
+// AgentPersona represents a long-lived agent configuration
+type AgentPersona struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Workspace string `json:"workspace"`
+	AgentDir  string `json:"agent_dir"`
+	Sessions  string `json:"sessions_dir"`
+	IsDefault bool   `json:"is_default"`
+}
+
 type DataProvider struct {
 	BasePath string
 }
@@ -153,29 +164,105 @@ func NewDataProvider() (*DataProvider, error) {
 	return &DataProvider{BasePath: basePath}, nil
 }
 
+func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
+	configPath := filepath.Join(dp.BasePath, "openclaw.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		// Fallback to minimal "main" agent if config missing
+		return []AgentPersona{
+			{
+				ID:        "main",
+				Name:      "Main Agent",
+				Workspace: filepath.Join(dp.BasePath, "workspace"),
+				AgentDir:  filepath.Join(dp.BasePath, "agents", "main", "agent"),
+				Sessions:  filepath.Join(dp.BasePath, "agents", "main", "sessions"),
+				IsDefault: true,
+			},
+		}, nil
+	}
+
+	var cfg struct {
+		Agents struct {
+			List []struct {
+				ID        string `json:"id"`
+				Name      string `json:"name"`
+				Workspace string `json:"workspace"`
+				AgentDir  string `json:"agentDir"`
+				Default   bool   `json:"default"`
+			} `json:"list"`
+		} `json:"agents"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+
+	var personas []AgentPersona
+	for _, a := range cfg.Agents.List {
+		id := a.ID
+		if id == "" {
+			continue
+		}
+
+		workspace := a.Workspace
+		if workspace == "" {
+			if id == "main" {
+				workspace = filepath.Join(dp.BasePath, "workspace")
+			} else {
+				workspace = filepath.Join(dp.BasePath, "workspace-"+id)
+			}
+		}
+
+		agentDir := a.AgentDir
+		if agentDir == "" {
+			agentDir = filepath.Join(dp.BasePath, "agents", id, "agent")
+		}
+
+		sessionsDir := filepath.Join(dp.BasePath, "agents", id, "sessions")
+
+		name := a.Name
+		if name == "" {
+			name = strings.Title(id)
+		}
+
+		personas = append(personas, AgentPersona{
+			ID:        id,
+			Name:      name,
+			Workspace: workspace,
+			AgentDir:  agentDir,
+			Sessions:  sessionsDir,
+			IsDefault: a.Default || (id == "main" && len(cfg.Agents.List) == 1),
+		})
+	}
+
+	if len(personas) == 0 {
+		personas = append(personas, AgentPersona{
+			ID:        "main",
+			Name:      "Main Agent",
+			Workspace: filepath.Join(dp.BasePath, "workspace"),
+			AgentDir:  filepath.Join(dp.BasePath, "agents", "main", "agent"),
+			Sessions:  filepath.Join(dp.BasePath, "agents", "main", "sessions"),
+			IsDefault: true,
+		})
+	}
+
+	return personas, nil
+}
+
 func (dp *DataProvider) GetSubAgentActivity() ([]SubAgentRun, error) {
 	var allRuns []SubAgentRun
 
-	// 1. Try multiple possible paths for subagents.json across users if needed
-	paths := []string{
-		filepath.Join(dp.BasePath, "subagents.json"),
-		"/home/jason9075/.openclaw/subagents.json",
-		"/home/clawbot/.openclaw/subagents.json",
-	}
-
-	for _, p := range paths {
-		if data, err := os.ReadFile(p); err == nil {
-			var runs []SubAgentRun
-			if err := json.Unmarshal(data, &runs); err == nil {
-				allRuns = append(allRuns, runs...)
-				break // Found one, good enough
-			}
+	// 1. Try legacy/current format: subagents.json
+	legacyPath := filepath.Join(dp.BasePath, "subagents.json")
+	if data, err := os.ReadFile(legacyPath); err == nil {
+		var runs []SubAgentRun
+		if err := json.Unmarshal(data, &runs); err == nil {
+			allRuns = append(allRuns, runs...)
 		}
 	}
 
 	// 2. Try new format: subagents/runs.json
-	registryPath := filepath.Join(dp.BasePath, "subagents", "runs.json")
-	if data, err := os.ReadFile(registryPath); err == nil {
+	path := filepath.Join(dp.BasePath, "subagents", "runs.json")
+	if data, err := os.ReadFile(path); err == nil {
 		var registry PersistedSubagentRegistry
 		if err := json.Unmarshal(data, &registry); err == nil {
 			for _, record := range registry.Runs {
@@ -214,64 +301,6 @@ func (dp *DataProvider) GetSubAgentActivity() ([]SubAgentRun, error) {
 	return allRuns, nil
 }
 
-func (dp *DataProvider) GetDefinedAgents() ([]SubAgentRun, error) {
-	var agents []SubAgentRun
-
-	// 1. Try reading from openclaw.json
-	configPath := filepath.Join(dp.BasePath, "openclaw.json")
-	if data, err := os.ReadFile(configPath); err == nil {
-		var cfg struct {
-			Agents struct {
-				List []struct {
-					ID   string `json:"id"`
-					Name string `json:"name"`
-				} `json:"list"`
-			} `json:"agents"`
-		}
-		if err := json.Unmarshal(data, &cfg); err == nil {
-			for _, a := range cfg.Agents.List {
-				name := a.Name
-				if name == "" {
-					name = a.ID
-				}
-				agents = append(agents, SubAgentRun{
-					ID:     a.ID,
-					Name:   name,
-					Status: "online",
-				})
-			}
-		}
-	}
-
-	// 2. Scan agents/ directory
-	agentsDir := filepath.Join(dp.BasePath, "agents")
-	entries, err := os.ReadDir(agentsDir)
-	if err == nil {
-		for _, e := range entries {
-			if e.IsDir() {
-				id := e.Name()
-				// Avoid duplicates
-				exists := false
-				for _, a := range agents {
-					if a.ID == id {
-						exists = true
-						break
-					}
-				}
-				if !exists && id != "main" {
-					agents = append(agents, SubAgentRun{
-						ID:     id,
-						Name:   strings.Title(id),
-						Status: "online",
-					})
-				}
-			}
-		}
-	}
-
-	return agents, nil
-}
-
 func (dp *DataProvider) ListFiles() ([]string, error) {
 	var files []string
 	filepath.Walk(dp.BasePath, func(path string, info os.FileInfo, err error) error {
@@ -286,8 +315,7 @@ func (dp *DataProvider) ListFiles() ([]string, error) {
 
 func (dp *DataProvider) GetTodos() ([]TodoItem, error) {
 	path := filepath.Join(dp.BasePath, "todo.json")
-	data, err := os.ReadFile(path)
-	if err == nil {
+	if data, err := os.ReadFile(path); err == nil {
 		var todos []TodoItem
 		json.Unmarshal(data, &todos)
 		return todos, nil
@@ -297,8 +325,7 @@ func (dp *DataProvider) GetTodos() ([]TodoItem, error) {
 
 func (dp *DataProvider) GetActiveSessions() (map[string]Session, error) {
 	path := filepath.Join(dp.BasePath, "sessions", "active.json")
-	data, err := os.ReadFile(path)
-	if err == nil {
+	if data, err := os.ReadFile(path); err == nil {
 		var sessions map[string]Session
 		json.Unmarshal(data, &sessions)
 		return sessions, nil
@@ -394,12 +421,131 @@ func (dp *DataProvider) GetModels() ([]Model, error) {
 	return []Model{}, nil
 }
 
-func (dp *DataProvider) GetSkills() ([]Skill, error) {
-	path := filepath.Join(dp.BasePath, "skills.json")
-	if data, err := os.ReadFile(path); err == nil {
-		var skills []Skill
-		json.Unmarshal(data, &skills)
-		return skills, nil
+type UsageBucket struct {
+	Calls       int     `json:"calls"`
+	Input       int64   `json:"input"`
+	Output      int64   `json:"output"`
+	CacheRead   int64   `json:"cache_read"`
+	TotalTokens int64   `json:"total_tokens"`
+	Cost        float64 `json:"cost"`
+}
+
+type ModelUsage struct {
+	Model string `json:"model"`
+	UsageBucket
+}
+
+func FriendlyModelName(model string) string {
+	ml := strings.ToLower(model)
+	if strings.Contains(ml, "opus-4-6") {
+		return "Claude Opus 4.6"
+	} else if strings.Contains(ml, "opus") {
+		return "Claude Opus 4.5"
+	} else if strings.Contains(ml, "sonnet") {
+		return "Claude Sonnet"
+	} else if strings.Contains(ml, "haiku") {
+		return "Claude Haiku"
+	} else if strings.Contains(ml, "gpt-5") {
+		return "GPT-5"
+	} else if strings.Contains(ml, "gpt-4o") {
+		return "GPT-4o"
+	} else if strings.Contains(ml, "gpt-4") {
+		return "GPT-4"
+	} else if strings.Contains(ml, "gemini") {
+		return "Gemini"
 	}
-	return []Skill{}, nil
+	return model
+}
+
+func (dp *DataProvider) GetDetailedUsage() (map[string]UsageBucket, error) {
+	usage := make(map[string]UsageBucket)
+	pattern := filepath.Join(dp.BasePath, "agents", "*", "sessions", "*.jsonl")
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, f := range files {
+		file, err := os.Open(f)
+		if err != nil {
+			continue
+		}
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			var line struct {
+				Message struct {
+					Role  string `json:"role"`
+					Model string `json:"model"`
+					Usage struct {
+						Input       int64 `json:"input"`
+						Output      int64 `json:"output"`
+						CacheRead   int64 `json:"cacheRead"`
+						TotalTokens int64 `json:"totalTokens"`
+						Cost        struct {
+							Total float64 `json:"total"`
+						} `json:"cost"`
+					} `json:"usage"`
+				} `json:"message"`
+			}
+			if err := json.Unmarshal(scanner.Bytes(), &line); err != nil {
+				continue
+			}
+
+			if line.Message.Role != "assistant" || line.Message.Model == "" {
+				continue
+			}
+
+			name := FriendlyModelName(line.Message.Model)
+			bucket := usage[name]
+			bucket.Calls++
+			bucket.Input += line.Message.Usage.Input
+			bucket.Output += line.Message.Usage.Output
+			bucket.CacheRead += line.Message.Usage.CacheRead
+			bucket.TotalTokens += line.Message.Usage.TotalTokens
+			bucket.Cost += line.Message.Usage.Cost.Total
+			usage[name] = bucket
+		}
+		file.Close()
+	}
+
+	return usage, nil
+}
+
+func (dp *DataProvider) GetGeneratedAlerts() ([]Alert, error) {
+	var alerts []Alert
+
+	// 1. Memory usage alert
+	stats, err := exec.Command("ps", "-A", "-o", "rss=").Output()
+	if err == nil {
+		totalRSS := 0.0
+		for _, line := range strings.Fields(string(stats)) {
+			rss, _ := strconv.ParseFloat(line, 64)
+			totalRSS += rss
+		}
+		if totalRSS > 512000 { // > 500MB
+			alerts = append(alerts, Alert{
+				Level:   "WARNING",
+				Message: fmt.Sprintf("High system memory usage: %.0f MB", totalRSS/1024),
+				Time:    time.Now().Format("15:04:05"),
+			})
+		}
+	}
+
+	// 2. Cost alert
+	usage, err := dp.GetDetailedUsage()
+	if err == nil {
+		totalCost := 0.0
+		for _, b := range usage {
+			totalCost += b.Cost
+		}
+		if totalCost > 20.0 {
+			alerts = append(alerts, Alert{
+				Level:   "WARNING",
+				Message: fmt.Sprintf("Daily cost exceeds $20: $%.2f", totalCost),
+				Time:    time.Now().Format("15:04:05"),
+			})
+		}
+	}
+
+	return alerts, nil
 }

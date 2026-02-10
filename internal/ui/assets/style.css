@@ -611,6 +611,96 @@ button {
     pointer-events: auto;
 }
 
+/* Agent Personas */
+.section-title {
+    font-size: 1.2rem;
+    color: var(--nord8);
+    margin: 24px 0 16px 0;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--nord3);
+}
+
+.agent-persona-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: var(--space-md);
+    margin-bottom: var(--space-md);
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.2s;
+}
+
+.agent-persona-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.agent-persona-card.default-agent {
+    border-top: 4px solid var(--nord10);
+}
+
+.persona-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    margin-bottom: var(--space-md);
+}
+
+.persona-icon {
+    font-size: 2rem;
+}
+
+.persona-info {
+    flex: 1;
+}
+
+.persona-info h3 {
+    margin: 0;
+    font-size: 1.2rem;
+}
+
+.persona-info code {
+    color: var(--nord9);
+    font-size: 0.85rem;
+}
+
+.persona-paths {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--nord0);
+    padding: var(--space-sm);
+    border-radius: 4px;
+}
+
+.path-item {
+    display: flex;
+    gap: var(--space-sm);
+    font-size: 0.85rem;
+}
+
+.path-item .label {
+    color: var(--nord7);
+    font-weight: 500;
+    min-width: 100px;
+}
+
+.path-item .path {
+    color: var(--text-secondary);
+    word-break: break-all;
+    font-family: monospace;
+}
+
+.badge.online {
+    background: rgba(163, 190, 140, 0.2);
+    color: var(--nord14);
+}
+
+.badge.offline {
+    background: rgba(191, 97, 106, 0.2);
+    color: var(--nord11);
+}
+
 /* Agent List Styles */
 .agents-list-wrapper {
     padding: var(--space-md);

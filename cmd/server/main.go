@@ -17,21 +17,21 @@ import (
 )
 
 type DashboardState struct {
-	Timestamp   time.Time               `json:"timestamp"`
-	Uptime      string                  `json:"uptime"`
-	System      monitor.SystemStats     `json:"system"`
-	Todos       []data.TodoItem         `json:"todos"`
-	Sessions    map[string]data.Session `json:"sessions"`
-	Alerts      []data.Alert            `json:"alerts"`
-	GitLog      []data.GitCommit        `json:"git_log"`
-	CronJobs    []data.CronJob          `json:"cron_jobs"`
-	Costs       []data.CostCard         `json:"costs"`
-	TokenUsage  []data.TokenStats       `json:"token_usage"`
-	SubAgents   []data.SubAgentRun      `json:"sub_agents"`
-	Models      []data.Model            `json:"models"`
-	Skills      []data.Skill            `json:"skills"`
-	BasePath    string                  `json:"base_path"`
-	Files       []string                `json:"files"`
+	Timestamp     time.Time                    `json:"timestamp"`
+	Uptime        string                       `json:"uptime"`
+	System        monitor.SystemStats          `json:"system"`
+	Todos         []data.TodoItem              `json:"todos"`
+	Sessions      map[string]data.Session      `json:"sessions"`
+	Alerts        []data.Alert                 `json:"alerts"`
+	GitLog        []data.GitCommit             `json:"git_log"`
+	CronJobs      []data.CronJob               `json:"cron_jobs"`
+	Costs         []data.CostCard              `json:"costs"`
+	TokenUsage    []data.TokenStats            `json:"token_usage"`
+	DetailedUsage map[string]data.UsageBucket `json:"detailed_usage"`
+	SubAgents     []data.SubAgentRun           `json:"sub_agents"`
+	Personas      []data.AgentPersona          `json:"personas"`
+	Models        []data.Model                 `json:"models"`
+	BasePath      string                       `json:"base_path"`
 }
 
 var startTime = time.Now()
@@ -106,49 +106,50 @@ func handleStatus(logger *slog.Logger, dp *data.DataProvider) http.HandlerFunc {
 		var cronJobs []data.CronJob
 		var costs []data.CostCard
 		var tokenUsage []data.TokenStats
+		var detailedUsage map[string]data.UsageBucket
 		var subAgents []data.SubAgentRun
+		var personas []data.AgentPersona
 		var models []data.Model
-		var skills []data.Skill
 		var basePath string
-		var files []string
 
 		if dp != nil {
 			todos, _ = dp.GetTodos()
 			sessions, _ = dp.GetActiveSessions()
 			alerts, _ = dp.GetAlerts()
+			
+			// Append generated alerts
+			genAlerts, _ := dp.GetGeneratedAlerts()
+			alerts = append(alerts, genAlerts...)
+
 			gitLog, _ = dp.GetGitLog()
 			cronJobs, _ = dp.GetCronJobs()
 			costs, _ = dp.GetCosts()
 			tokenUsage, _ = dp.GetTokenUsage()
+			detailedUsage, _ = dp.GetDetailedUsage()
 			
-			// Combine runs and defined bots
-			runs, _ := dp.GetSubAgentActivity()
-			bots, _ := dp.GetDefinedAgents()
-			
-			subAgents = append(runs, bots...)
+			subAgents, _ = dp.GetSubAgentActivity()
+			personas, _ = dp.GetAgentPersonas()
 
 			models, _ = dp.GetModels()
-			skills, _ = dp.GetSkills()
 			basePath = dp.BasePath
-			files, _ = dp.ListFiles()
 		}
 
 		state := DashboardState{
-			Timestamp:   time.Now(),
-			Uptime:      time.Since(startTime).String(),
-			System:      sysStats,
-			Todos:       todos,
-			Sessions:    sessions,
-			Alerts:      alerts,
-			GitLog:      gitLog,
-			CronJobs:    cronJobs,
-			Costs:       costs,
-			TokenUsage:  tokenUsage,
-			SubAgents:   subAgents,
-			Models:      models,
-			Skills:      skills,
-			BasePath:    basePath,
-			Files:       files,
+			Timestamp:     time.Now(),
+			Uptime:        time.Since(startTime).String(),
+			System:        sysStats,
+			Todos:         todos,
+			Sessions:      sessions,
+			Alerts:        alerts,
+			GitLog:        gitLog,
+			CronJobs:      cronJobs,
+			Costs:         costs,
+			TokenUsage:    tokenUsage,
+			DetailedUsage: detailedUsage,
+			SubAgents:     subAgents,
+			Personas:      personas,
+			Models:        models,
+			BasePath:      basePath,
 		}
 
 		w.Header().Set("Content-Type", "application/json")

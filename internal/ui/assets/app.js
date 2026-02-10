@@ -62,8 +62,12 @@ async function fetchStatus() {
 function updateDashboard(data) {
     // Global Status
     const statusEl = document.getElementById('status-indicator');
-    statusEl.textContent = 'Online';
-    statusEl.className = 'status-online';
+    if (statusEl) {
+        const gwStatus = (data.system && data.system.gateway_status) || 'offline';
+        const statusText = gwStatus === 'online' ? 'Online' : 'Gateway Offline';
+        statusEl.textContent = statusText;
+        statusEl.className = gwStatus === 'online' ? 'status-online' : 'status-offline';
+    }
 
     // Footer Info
     if (data.uptime) document.getElementById('uptime-display').textContent = data.uptime;
@@ -119,7 +123,31 @@ function updateDashboard(data) {
 
     // Sub-Agents
     const subAgentsContent = document.getElementById('subagents-content');
-    if (data.sub_agents && data.sub_agents.length > 0) {
+    if (data.personas && data.personas.length > 0) {
+        let saHtml = data.personas.map(p => `
+            <div class="subagent-item persona-item">
+                <div>
+                    <div><strong>🧠 ${p.name}</strong></div>
+                    <small>ID: ${p.id} ${p.is_default ? '(Default)' : ''}</small>
+                </div>
+                <div class="badge online">Online</div>
+            </div>
+        `).join('');
+
+        if (data.sub_agents && data.sub_agents.length > 0) {
+            saHtml += '<hr style="border:0; border-top:1px solid var(--nord2); margin:10px 0;">';
+            saHtml += data.sub_agents.slice(0, 5).map(sa => `
+                <div class="subagent-item sa-status-${sa.status.toLowerCase()}">
+                    <div>
+                        <div><strong>${sa.name}</strong></div>
+                        <small>${sa.duration} | ${sa.tokens} tokens</small>
+                    </div>
+                    <div>$${sa.cost.toFixed(4)}</div>
+                </div>
+            `).join('');
+        }
+        subAgentsContent.innerHTML = saHtml;
+    } else if (data.sub_agents && data.sub_agents.length > 0) {
         subAgentsContent.innerHTML = data.sub_agents.map(sa => `
             <div class="subagent-item sa-status-${sa.status.toLowerCase()}">
                 <div>
