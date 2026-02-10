@@ -7,67 +7,111 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
+<body>
+    <div class="slide-menu" id="slide-menu">
+        <div class="menu-header">
+            <h3>Menu</h3>
+            <button id="close-menu-btn" class="close-btn">&times;</button>
+        </div>
+        <ul class="menu-list">
+            <li><a href="#" class="active">Dashboard</a></li>
+            <li><a href="#">System Health</a></li>
+            <li><a href="#">Logs</a></li>
+            <li><a href="#">Settings</a></li>
+        </ul>
+        <div class="menu-footer">
+            <p>OpenClaw v1.0</p>
+        </div>
+    </div>
+
+    <div class="container main-content" id="main-content">
         <header class="header">
-            <h1>OpenClaw Dashboard</h1>
-            <div id="status-indicator" class="status-online">Online</div>
+            <div class="header-left">
+                <button id="menu-toggle-btn" class="menu-btn">&#9776;</button>
+                <h1>OpenClaw Dashboard</h1>
+            </div>
+            <div class="header-right">
+                <div class="bot-status">
+                    <span class="bot-name">🤖 AntiGravity</span>
+                    <span id="status-indicator" class="status-online">Online</span>
+                </div>
+                <div class="refresh-timer">
+                    Auto-refresh: <span id="countdown">60</span>s
+                </div>
+            </div>
         </header>
 
+        <div id="alerts-banner" class="alerts-banner">
+            <!-- Dynamic alerts will appear here -->
+        </div>
+
         <main class="dashboard-grid">
-            <!-- 1. System Health -->
+            <!-- Row 1: System Health & Costs -->
             <section class="card health-panel">
-                <h2>System Health</h2>
+                <h2>System Health 00</h2>
                 <div id="sys-health-content">Loading...</div>
             </section>
 
-            <!-- 1.5 System Info -->
-            <section class="card info-panel">
-                <h2>System Info</h2>
-                <div id="sys-info-content">Loading...</div>
-            </section>
-
-            <!-- 2. Alerts -->
-            <section class="card alerts-panel">
-                <h2>Alerts</h2>
-                <div id="alerts-content">No active alerts.</div>
-            </section>
-
-            <!-- 3. Cost Cards -->
             <section class="card costs-panel">
                 <h2>Infrastructure Costs</h2>
                 <div id="costs-content" class="costs-grid">Loading...</div>
             </section>
 
-            <!-- 4. Active Sessions -->
+            <!-- Row 2: Token Usage & Sub-Agents -->
+            <section class="card tokens-panel">
+                <h2>Token Usage</h2>
+                <div class="toggle-container">
+                    <button class="toggle-btn active" onclick="toggleTokenView('today')">Today</button>
+                    <button class="toggle-btn" onclick="toggleTokenView('all-time')">All Time</button>
+                </div>
+                <div id="token-usage-content">Loading...</div>
+            </section>
+
+            <section class="card subagents-panel">
+                <h2>Sub-Agent Activity</h2>
+                <div id="subagents-content">Loading...</div>
+            </section>
+
+            <!-- Row 3: Kanban & Active Sessions -->
+            <section class="card kanban-panel">
+                <h2>Kanban Board</h2>
+                <div id="kanban-content" class="kanban-board">Loading...</div>
+            </section>
+
             <section class="card sessions-panel">
                 <h2>Active Sessions</h2>
                 <div id="sessions-content">Loading...</div>
             </section>
 
-            <!-- 4. Kanban Board -->
-            <section class="card kanban-panel">
-                <h2>Kanban</h2>
-                <div id="kanban-content">Loading...</div>
-            </section>
-
-            <!-- 5. Git Log -->
-            <section class="card git-panel">
-                <h2>Git Log</h2>
-                <div id="git-content">Loading...</div>
-            </section>
-
-             <!-- 6. Cron Jobs -->
+            <!-- Row 4: Cron Jobs -->
              <section class="card cron-panel">
                 <h2>Cron Jobs</h2>
                 <div id="cron-content">Loading...</div>
+            </section>
+
+            <!-- Row 5: Bottom Row (Models, Skills, Git) -->
+            <section class="card models-panel">
+                <h2>Available Models</h2>
+                <div id="models-content">Loading...</div>
+            </section>
+
+            <section class="card skills-panel">
+                <h2>Skills</h2>
+                <div id="skills-content">Loading...</div>
+            </section>
+
+            <section class="card git-panel">
+                <h2>Git Log</h2>
+                <div id="git-content">Loading...</div>
             </section>
         </main>
 
         <footer class="footer">
             <p>OpenClaw Dashboard &copy; 2026</p>
-            <p>Uptime: <span id="uptime-display">--</span></p>
+            <p>Uptime: <span id="uptime-display">--</span> | Compaction: <span id="compaction-mode">--</span></p>
         </footer>
     </div>
+    <div class="overlay" id="overlay"></div>
     <script src="app.js"></script>
 </body>
 </html>

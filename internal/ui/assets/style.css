@@ -27,21 +27,121 @@ body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     margin: 0;
     padding: 0;
+    overflow-x: hidden;
+}
+
+/* Slide Menu */
+.slide-menu {
+    position: fixed;
+    top: 0;
+    left: -250px;
+    width: 250px;
+    height: 100%;
+    background-color: var(--nord1);
+    box-shadow: 2px 0 5px rgba(0,0,0,0.5);
+    transition: left 0.3s ease;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+}
+
+.slide-menu.open {
+    left: 0;
+}
+
+.menu-header {
+    padding: 20px;
+    background-color: var(--nord2);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.menu-header h3 {
+    margin: 0;
+    color: var(--nord8);
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    color: var(--nord4);
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+
+.menu-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    flex: 1;
+}
+
+.menu-list li a {
+    display: block;
+    padding: 15px 20px;
+    color: var(--nord4);
+    text-decoration: none;
+    border-bottom: 1px solid var(--nord2);
+    transition: background 0.2s;
+}
+
+.menu-list li a:hover, .menu-list li a.active {
+    background-color: var(--nord3);
+    color: var(--nord8);
+}
+
+.menu-footer {
+    padding: 20px;
+    text-align: center;
+    color: var(--nord3);
+    font-size: 0.8rem;
+}
+
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 900;
+    display: none;
+}
+
+.overlay.active {
+    display: block;
 }
 
 .container {
     max-width: 1600px;
     margin: 0 auto;
     padding: 20px;
+    transition: margin-left 0.3s ease;
 }
 
+/* Header */
 .header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 20px;
-    padding-bottom: 10px;
+    padding-bottom: 15px;
     border-bottom: 2px solid var(--nord3);
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.menu-btn {
+    background: none;
+    border: none;
+    color: var(--nord4);
+    font-size: 1.5rem;
+    cursor: pointer;
 }
 
 .header h1 {
@@ -49,14 +149,68 @@ body {
     margin: 0;
 }
 
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.bot-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background-color: var(--nord1);
+    padding: 5px 15px;
+    border-radius: 20px;
+}
+
+.bot-name {
+    font-weight: bold;
+    color: var(--nord6);
+}
+
 .status-online {
     background-color: var(--nord14);
     color: var(--nord0);
-    padding: 5px 15px;
+    padding: 2px 8px;
     border-radius: 4px;
+    font-size: 0.8rem;
     font-weight: bold;
 }
 
+.status-offline {
+    background-color: var(--nord11);
+    color: var(--nord6);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: bold;
+}
+
+.refresh-timer {
+    color: var(--nord4);
+    font-size: 0.9rem;
+}
+
+/* Alerts Banner */
+.alerts-banner {
+    display: block; /* Hidden by default if empty */
+    margin-bottom: 20px;
+}
+
+.warning-banner {
+    background-color: var(--nord13);
+    color: var(--nord0);
+    padding: 10px 15px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: bold;
+}
+
+/* Grid Layout */
 .dashboard-grid {
     display: grid;
     grid-template-columns: repeat(12, 1fr);
@@ -69,57 +223,128 @@ body {
     border: 1px solid var(--nord3);
     padding: 15px;
     border-radius: 4px;
-    transition: background-color 0.2s ease;
-    /* High contrast, no transparency */
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    display: flex;
+    flex-direction: column;
 }
 
 .card:hover {
     background-color: var(--nord2);
     border-color: var(--nord8);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
 }
 
 .card h2 {
     color: var(--nord4);
     border-bottom: 1px solid var(--nord3);
-    padding-bottom: 5px;
+    padding-bottom: 10px;
     margin-top: 0;
-    font-size: 1.2rem;
+    font-size: 1.1rem;
+    display: flex;
+    justify-content: space-between;
 }
 
-/* Panel Sizing (12-column system) */
-.health-panel {
-    grid-column: span 3;
+/* Panel Sizing */
+.health-panel { grid-column: span 6; }
+.costs-panel { grid-column: span 6; }
+.tokens-panel { grid-column: span 6; }
+.subagents-panel { grid-column: span 6; }
+.kanban-panel { grid-column: span 6; }
+.sessions-panel { grid-column: span 6; }
+.cron-panel { grid-column: span 12; }
+.models-panel { grid-column: span 4; }
+.skills-panel { grid-column: span 4; }
+.git-panel { grid-column: span 4; }
+
+/* Responsive */
+@media (max-width: 1200px) {
+    .health-panel, .costs-panel, .tokens-panel, .subagents-panel, 
+    .kanban-panel, .sessions-panel { grid-column: span 12; }
+    .models-panel, .skills-panel, .git-panel { grid-column: span 6; }
 }
 
-.info-panel {
-    grid-column: span 3;
+@media (max-width: 768px) {
+    .dashboard-grid { display: flex; flex-direction: column; }
+    .header { flex-direction: column; gap: 10px; }
+    .header-right { flex-direction: column; gap: 10px; }
 }
 
-.costs-panel {
-    grid-column: span 3;
-}
+/* Specific Component Styles */
 
-.alerts-panel {
-    grid-column: span 3;
-    border-left: 5px solid var(--nord11);
+/* System Health */
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--nord2);
 }
+.stat-row strong { color: var(--nord9); }
 
-.sessions-panel {
-    grid-column: span 4;
+/* Costs */
+.costs-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 15px;
 }
-
-.kanban-panel {
-    grid-column: span 4;
+.cost-card {
+    background-color: var(--nord0);
+    padding: 15px;
+    border-radius: 6px;
+    text-align: center;
 }
+.cost-label { display: block; color: var(--nord4); font-size: 0.9rem; margin-bottom: 5px; }
+.cost-value { display: block; color: var(--nord14); font-size: 1.4rem; font-weight: bold; }
 
-.git-panel {
-    grid-column: span 4;
+/* Token Usage */
+.toggle-container {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
 }
-
-.cron-panel {
-    grid-column: span 12;
+.toggle-btn {
+    background: var(--nord2);
+    border: none;
+    color: var(--nord4);
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
 }
+.toggle-btn.active {
+    background: var(--nord8);
+    color: var(--nord0);
+}
+.token-bar {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.token-label { width: 100px; font-size: 0.9rem; }
+.token-progress-bg { flex: 1; background: var(--nord0); height: 10px; border-radius: 5px; overflow: hidden; margin: 0 10px; }
+.token-progress { background: var(--nord10); height: 100%; }
+.token-value { width: 60px; text-align: right; font-size: 0.8rem; color: var(--nord4); }
 
+/* Sub Agents */
+.subagent-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--nord0);
+    padding: 10px;
+    margin-bottom: 8px;
+    border-radius: 4px;
+    border-left: 3px solid var(--nord9);
+}
+.sa-status-running { border-left-color: var(--nord13); }
+.sa-status-failed { border-left-color: var(--nord11); }
+.sa-status-completed { border-left-color: var(--nord14); }
+
+/* Tables */
+.data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.data-table th { text-align: left; border-bottom: 2px solid var(--nord3); padding: 8px; color: var(--nord8); }
+.data-table td { border-bottom: 1px solid var(--nord2); padding: 8px; }
+
+/* Footer */
 .footer {
     margin-top: 40px;
     text-align: center;
@@ -128,129 +353,10 @@ body {
     padding-top: 20px;
 }
 
-/* Data Elements */
-.stat-row {
-    padding: 5px 0;
-    border-bottom: 1px solid var(--nord0);
-}
-
+/* Utils */
 .empty-state {
     color: var(--nord3);
     font-style: italic;
-    padding: 10px;
-}
-
-/* Alerts */
-.alert-item {
-    padding: 8px;
-    margin-bottom: 5px;
-    background-color: var(--nord0);
-    border-left: 3px solid var(--nord8);
-}
-.alert-error { border-left-color: var(--nord11); }
-.alert-warning { border-left-color: var(--nord13); }
-
-.alert-time {
-    color: var(--nord3);
-    font-size: 0.85em;
-    margin-right: 10px;
-}
-
-/* Tables */
-.data-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-.data-table th, .data-table td {
-    text-align: left;
-    padding: 8px;
-    border-bottom: 1px solid var(--nord0);
-}
-.data-table th {
-    color: var(--nord4);
-}
-
-/* Todo Items */
-.todo-item {
-    background-color: var(--nord0);
-    padding: 8px;
-    margin-bottom: 5px;
-    border-radius: 2px;
-}
-.priority-high { border-right: 3px solid var(--nord11); }
-.priority-medium { border-right: 3px solid var(--nord13); }
-.todo-status {
-    color: var(--nord9);
-    font-weight: bold;
-    font-size: 0.8em;
-    text-transform: uppercase;
-    margin-right: 5px;
-}
-
-/* Costs */
-.costs-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-}
-
-.cost-card {
-    background-color: var(--nord0);
-    padding: 10px;
-    border-radius: 4px;
-    flex: 1;
-    min-width: 80px;
     text-align: center;
-}
-
-.cost-label {
-    font-size: 0.8em;
-    color: var(--nord3);
-    display: block;
-}
-
-.cost-value {
-    font-size: 1.2em;
-    font-weight: bold;
-    color: var(--nord7);
-}
-
-/* Git Commits */
-.git-commit {
-    padding: 5px 0;
-    border-bottom: 1px solid var(--nord0);
-    font-family: monospace;
-    font-size: 0.9em;
-}
-
-.commit-hash {
-    color: var(--nord10);
-    margin-right: 8px;
-}
-
-.commit-msg {
-    color: var(--nord4);
-}
-
-code {
-    background-color: var(--nord0);
-    padding: 2px 4px;
-    border-radius: 2px;
-    color: var(--nord7);
-}
-
-/* Responsive adjustments */
-@media (max-width: 1024px) {
-    .health-panel, .sessions-panel, .kanban-panel, .git-panel {
-        grid-column: span 6;
-    }
-    .alerts-panel {
-        grid-column: span 12;
-    }
-}
-
-@media (max-width: 768px) {
-    .card, .health-panel, .alerts-panel, .sessions-panel, .kanban-panel, .git-panel, .cron-panel {
-        grid-column: span 12;
-    }
+    padding: 20px;
 }

@@ -25,6 +25,10 @@ type DashboardState struct {
 	GitLog      []data.GitCommit        `json:"git_log"`
 	CronJobs    []data.CronJob          `json:"cron_jobs"`
 	Costs       []data.CostCard         `json:"costs"`
+	TokenUsage  []data.TokenStats       `json:"token_usage"`
+	SubAgents   []data.SubAgentRun      `json:"sub_agents"`
+	Models      []data.Model            `json:"models"`
+	Skills      []data.Skill            `json:"skills"`
 }
 
 var startTime = time.Now()
@@ -95,6 +99,10 @@ func handleStatus(logger *slog.Logger, dp *data.DataProvider) http.HandlerFunc {
 		var gitLog []data.GitCommit
 		var cronJobs []data.CronJob
 		var costs []data.CostCard
+		var tokenUsage []data.TokenStats
+		var subAgents []data.SubAgentRun
+		var models []data.Model
+		var skills []data.Skill
 
 		if dp != nil {
 			todos, _ = dp.GetTodos()
@@ -103,6 +111,10 @@ func handleStatus(logger *slog.Logger, dp *data.DataProvider) http.HandlerFunc {
 			gitLog, _ = dp.GetGitLog()
 			cronJobs, _ = dp.GetCronJobs()
 			costs, _ = dp.GetCosts()
+			tokenUsage, _ = dp.GetTokenUsage()
+			subAgents, _ = dp.GetSubAgentActivity()
+			models, _ = dp.GetModels()
+			skills, _ = dp.GetSkills()
 		}
 
 		state := DashboardState{
@@ -115,6 +127,10 @@ func handleStatus(logger *slog.Logger, dp *data.DataProvider) http.HandlerFunc {
 			GitLog:    gitLog,
 			CronJobs:  cronJobs,
 			Costs:     costs,
+			TokenUsage: tokenUsage,
+			SubAgents: subAgents,
+			Models:    models,
+			Skills:    skills,
 		}
 
 		w.Header().Set("Content-Type", "application/json")

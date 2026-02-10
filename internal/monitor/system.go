@@ -15,6 +15,7 @@ type SystemStats struct {
 	Hostname    string `json:"hostname"`
 	Kernel      string `json:"kernel"`
 	DiskUsage   string `json:"disk_usage"`
+	CompactionMode string `json:"compaction_mode"`
 }
 
 func GetSystemStats() (SystemStats, error) {
@@ -58,6 +59,9 @@ func GetSystemStats() (SystemStats, error) {
 	} else {
 		stats.Uptime = "N/A"
 	}
+
+	// Compaction Mode (Mocked for now)
+	stats.CompactionMode = "Auto"
 
 	// Disk Usage (Simplified using df if available)
 	stats.DiskUsage = "N/A"

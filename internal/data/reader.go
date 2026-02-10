@@ -45,6 +45,31 @@ type CostCard struct {
 	Unit  string  `json:"unit"`
 }
 
+type TokenStats struct {
+	Model       string  `json:"model"`
+	InputTokens int     `json:"input_tokens"`
+	OutputTokens int    `json:"output_tokens"`
+	TotalCost   float64 `json:"total_cost"`
+}
+
+type SubAgentRun struct {
+	Name     string  `json:"name"`
+	status   string  `json:"status"` // "running", "completed", "failed"
+	Duration string  `json:"duration"`
+	Cost     float64 `json:"cost"`
+	Tokens   int     `json:"tokens"`
+}
+
+type Model struct {
+	Name string `json:"name"`
+	Type string `json:"type"` // "chat", "embedding"
+}
+
+type Skill struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
 type DataProvider struct {
 	BasePath string
 }
@@ -208,4 +233,72 @@ func (dp *DataProvider) GetCosts() ([]CostCard, error) {
 		return nil, err
 	}
 	return costs, nil
+}
+
+func (dp *DataProvider) GetTokenUsage() ([]TokenStats, error) {
+	path := filepath.Join(dp.BasePath, "tokens.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []TokenStats{}, nil
+		}
+		return nil, err
+	}
+
+	var stats []TokenStats
+	if err := json.Unmarshal(data, &stats); err != nil {
+		return nil, err
+	}
+	return stats, nil
+}
+
+func (dp *DataProvider) GetSubAgentActivity() ([]SubAgentRun, error) {
+	path := filepath.Join(dp.BasePath, "subagents.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []SubAgentRun{}, nil
+		}
+		return nil, err
+	}
+
+	var runs []SubAgentRun
+	if err := json.Unmarshal(data, &runs); err != nil {
+		return nil, err
+	}
+	return runs, nil
+}
+
+func (dp *DataProvider) GetModels() ([]Model, error) {
+	path := filepath.Join(dp.BasePath, "models.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []Model{}, nil
+		}
+		return nil, err
+	}
+
+	var models []Model
+	if err := json.Unmarshal(data, &models); err != nil {
+		return nil, err
+	}
+	return models, nil
+}
+
+func (dp *DataProvider) GetSkills() ([]Skill, error) {
+	path := filepath.Join(dp.BasePath, "skills.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []Skill{}, nil
+		}
+		return nil, err
+	}
+
+	var skills []Skill
+	if err := json.Unmarshal(data, &skills); err != nil {
+		return nil, err
+	}
+	return skills, nil
 }
