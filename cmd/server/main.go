@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -35,7 +36,10 @@ var startTime = time.Now()
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	port := "8080"
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
 
 	// Initialize Data Provider
 	dp, err := data.NewDataProvider()
@@ -53,6 +57,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.FS(uiFS)))
+	mux.HandleFunc("/agents", handleAgents(uiFS))
 	mux.HandleFunc("/api/status", handleStatus(logger, dp))
 
 	srv := &http.Server{
@@ -137,5 +142,20 @@ func handleStatus(logger *slog.Logger, dp *data.DataProvider) http.HandlerFunc {
 		if err := json.NewEncoder(w).Encode(state); err != nil {
 			logger.Error("failed to encode state", "error", err)
 		}
+	}
+}
+
+func handleAgents(uiFS fs.FS) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Serve agents.html
+		f, err := http.FS(uiFS).Open("agents.html")
+		if err != nil {
+			http.Error(w, "Page not found", http.StatusNotFound)
+			return
+		}
+		defer f.Close()
+
+		stat, _ := f.Stat()
+		http.ServeContent(w, r, "agents.html", stat.ModTime(), f)
 	}
 }

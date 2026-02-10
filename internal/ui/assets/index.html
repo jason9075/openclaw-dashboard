@@ -1,12 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OpenClaw Dashboard</title>
     <link rel="stylesheet" href="style.css">
 </head>
-<body>
+
 <body>
     <div class="slide-menu" id="slide-menu">
         <div class="menu-header">
@@ -14,7 +15,8 @@
             <button id="close-menu-btn" class="close-btn">&times;</button>
         </div>
         <ul class="menu-list">
-            <li><a href="#" class="active">Dashboard</a></li>
+            <li><a href="/" class="active">Dashboard</a></li>
+            <li><a href="/agents">Agents</a></li>
             <li><a href="#">System Health</a></li>
             <li><a href="#">Logs</a></li>
             <li><a href="#">Settings</a></li>
@@ -84,7 +86,7 @@
             </section>
 
             <!-- Row 4: Cron Jobs -->
-             <section class="card cron-panel">
+            <section class="card cron-panel">
                 <h2>Cron Jobs</h2>
                 <div id="cron-content">Loading...</div>
             </section>
@@ -114,4 +116,5 @@
     <div class="overlay" id="overlay"></div>
     <script src="app.js"></script>
 </body>
+
 </html>

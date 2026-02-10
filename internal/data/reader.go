@@ -54,7 +54,7 @@ type TokenStats struct {
 
 type SubAgentRun struct {
 	Name     string  `json:"name"`
-	status   string  `json:"status"` // "running", "completed", "failed"
+	Status   string  `json:"status"` // "running", "completed", "failed"
 	Duration string  `json:"duration"`
 	Cost     float64 `json:"cost"`
 	Tokens   int     `json:"tokens"`

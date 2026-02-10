@@ -29,7 +29,7 @@ let countdownTimer;
 function startCountdown(seconds) {
     let counter = seconds;
     const el = document.getElementById('countdown');
-    
+
     clearInterval(countdownTimer);
     countdownTimer = setInterval(() => {
         counter--;
@@ -46,7 +46,7 @@ async function fetchStatus() {
         }
         const data = await response.json();
         updateDashboard(data);
-        
+
         // Reset countdown on successful fetch
         startCountdown(60);
     } catch (error) {
@@ -76,7 +76,7 @@ function updateDashboard(data) {
     if (data.alerts && data.alerts.length > 0) {
         const critical = data.alerts.filter(a => a.level === 'ERROR' || a.level === 'CRITICAL');
         if (critical.length > 0) {
-           alertsBanner.innerHTML = critical.map(a => `
+            alertsBanner.innerHTML = critical.map(a => `
                <div class="warning-banner">
                    <span>⚠️ ${a.message}</span>
                    <span>${a.time}</span>
@@ -136,7 +136,7 @@ function updateDashboard(data) {
     // Kanban
     // (Reuse existing logic or update if needed)
     const kanbanContent = document.getElementById('kanban-content');
-     if (data.todos && data.todos.length > 0) {
+    if (data.todos && data.todos.length > 0) {
         // Group by status if we want a real board, but for now list is fine or grouped list
         // Let's just list with status badges
         kanbanContent.innerHTML = data.todos.map(todo => `
@@ -183,8 +183,8 @@ function updateDashboard(data) {
     const modelsContent = document.getElementById('models-content');
     if (data.models && data.models.length > 0) {
         modelsContent.innerHTML = `
-            <ul style="list-style: none; padding: 0;">
-                ${data.models.map(m => `<li style="padding: 5px 0; border-bottom: 1px solid var(--nord2);"><strong>${m.name}</strong> <small>(${m.type})</small></li>`).join('')}
+            <ul>
+                ${data.models.map(m => `<li><strong>${m.name}</strong> <small>(${m.type})</small></li>`).join('')}
             </ul>
         `;
     } else {
@@ -195,8 +195,8 @@ function updateDashboard(data) {
     const skillsContent = document.getElementById('skills-content');
     if (data.skills && data.skills.length > 0) {
         skillsContent.innerHTML = `
-            <ul style="list-style: none; padding: 0;">
-                ${data.skills.map(s => `<li style="padding: 5px 0; border-bottom: 1px solid var(--nord2);"><strong>${s.name}</strong></li>`).join('')}
+            <ul>
+                ${data.skills.map(s => `<li><strong>${s.name}</strong></li>`).join('')}
             </ul>
         `;
     } else {
@@ -206,10 +206,10 @@ function updateDashboard(data) {
     // Git Log
     const gitContent = document.getElementById('git-content');
     if (data.git_log && data.git_log.length > 0) {
-         gitContent.innerHTML = data.git_log.map(commit => `
-            <div style="padding: 5px 0; border-bottom: 1px solid var(--nord2); font-family: monospace; font-size: 0.9em;">
-                <span style="color: var(--nord10); margin-right: 5px;">${commit.hash}</span>
-                <span style="color: var(--nord4);">${commit.message}</span>
+        gitContent.innerHTML = data.git_log.map(commit => `
+            <div class="git-entry">
+                <span class="git-hash">${commit.hash}</span>
+                <span class="git-msg">${commit.message}</span>
             </div>
         `).join('');
     } else {
@@ -235,7 +235,7 @@ function toggleTokenView(view) {
 function renderTokenUsage(data) {
     cachedTokenData = data || [];
     const container = document.getElementById('token-usage-content');
-    
+
     if (!cachedTokenData || cachedTokenData.length === 0) {
         container.innerHTML = '<div class="empty-state">No token data</div>';
         return;
@@ -244,7 +244,7 @@ function renderTokenUsage(data) {
     // Mock logic for today vs all-time since backend structure only has totals
     // In a real app, TokenStats would have Today/AllTime fields.
     // We'll simulate it by showing logic based on view
-    
+
     container.innerHTML = cachedTokenData.map(stat => {
         // Mock calculation for demo purposes
         const displayTokens = currentTokenView === 'today' ? Math.round(stat.input_tokens * 0.1) : stat.input_tokens;
@@ -256,10 +256,10 @@ function renderTokenUsage(data) {
             <div class="token-bar-row">
                 <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
                     <span style="font-size:0.9rem;">${stat.model}</span>
-                    <span style="font-size:0.8rem; color:var(--nord4);">${displayTokens.toLocaleString()} tkns</span>
+                    <span style="font-size:0.8rem; color:var(--text-secondary);">${displayTokens.toLocaleString()} tkns</span>
                 </div>
-                <div class="token-progress-bg" style="height:6px; background:var(--nord0); border-radius:3px; overflow:hidden;">
-                    <div class="token-progress" style="width:${percent}%; background:var(--nord8); height:100%;"></div>
+                <div class="token-progress-bg">
+                    <div class="token-progress" style="width:${percent}%;"></div>
                 </div>
                 <div style="text-align:right; font-size:0.8rem; color:var(--nord9); margin-top:2px;">$${displayCost.toFixed(4)}</div>
             </div>
