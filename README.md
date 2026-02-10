@@ -1,6 +1,61 @@
 # OpenClaw Dashboard
 
-This is the dashboard for the OpenClaw project.
+A lightweight, single-binary monitoring tool for the OpenClaw Agent ecosystem. Built with Go and Vanilla web technologies (Solid Nord design system).
+
+## Core Features
+
+### 1. Event-Driven Real-time Updates
+Instead of periodic polling, OpenClaw notifies the dashboard immediately when events occur (commands, starts, stops).
+- **Backend**: Implements `POST /api/hooks/receive`.
+- **Frontend**: Uses **Server-Sent Events (SSE)** via `GET /api/events`.
+- **Safety Fallback**: 60s periodic poll.
+
+### 2. Real-time Skill Usage Hints
+Uses OS-level file monitoring (`fsnotify`) to watch OpenClaw transcript files (`*.jsonl`).
+- **Immediate Feedback**: When an agent calls a skill, a "Toast" notification appears in the UI showing exactly which skill is being executed.
+- **Support**: Works with both Claude-style `tool_use` and OpenAI-style `tool_calls`.
+
+### 3. Multi-Agent Ecosystem Alignment
+Designed to perfectly match OpenClaw's [Isolated Multi-Agent architecture](https://docs.openclaw.ai/concepts/multi-agent).
+- **Agent Personas**: Visualizes long-lived agent "brains" (Manager, Researcher, Coder, etc.).
+- **Dynamic Identity**: Automatically parses `IDENTITY.md` and `openclaw.json` for agent names and emojis.
+- **Isolation aware**: Correct mapping of Workspace, Agent Directory, and Session folders.
+
+### 4. Smart Skill Management
+- **Skill Filtering**: Automatically distinguishes between **External Skills** (installed in `~/.openclaw/skills` or configured `extraDirs`) and built-in system tools.
+- **Clean UI**: Only user-installed/managed skills are listed to reduce clutter.
+
+### 5. Advanced System & Cost Monitoring
+- **Gateway Health**: Monitors the `openclaw-gateway` process (PID, Uptime, Memory/RSS).
+- **Cost Analysis**: Real-time parsing of session transcripts to calculate usage costs and token consumption across all models (GPT-5, Claude, Gemini, etc.).
+
+---
+
+## Configuration & Installation
+
+### Automatic State Discovery
+The dashboard intelligently looks for OpenClaw data in the following order:
+1.  `OPENCLAW_STATE_DIR` or `CLAWDBOT_STATE_DIR` env variables.
+2.  Local project `.openclaw` directory.
+3.  `/home/jason9075/.openclaw` (Target system specific fallback).
+4.  Standard `~/.openclaw` directory.
+
+### Installing the Dashboard Hook into OpenClaw
+To enable real-time notifications:
+
+1.  **Copy the Hook**:
+    ```bash
+    cp -r ./hooks/dashboard-bridge ~/.openclaw/hooks/
+    ```
+2.  **Enable the Hook**:
+    ```bash
+    openclaw hooks enable dashboard-bridge
+    ```
+3.  **Set Dashboard URL (Optional)**:
+    Default is `http://localhost:8080`. Set `OPENCLAW_DASHBOARD_URL` if different.
+4.  **Restart OpenClaw Gateway**.
+
+---
 
 ## Development Workflow: Remote Sync
 

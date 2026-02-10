@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -31,6 +32,7 @@ type DashboardState struct {
 	SubAgents     []data.SubAgentRun           `json:"sub_agents"`
 	Personas      []data.AgentPersona          `json:"personas"`
 	Models        []data.Model                 `json:"models"`
+	Skills        []data.Skill                 `json:"skills"`
 	BasePath      string                       `json:"base_path"`
 }
 
@@ -49,6 +51,17 @@ func main() {
 		logger.Error("failed to initialize data provider", "error", err)
 	}
 
+	// Initialize Broadcaster for real-time events
+	broadcaster := data.NewBroadcaster()
+	go broadcaster.Run()
+
+	// Start Transcript Watcher for real-time Skill usage detection
+	if dp != nil {
+		if err := dp.WatchTranscripts(broadcaster); err != nil {
+			logger.Warn("failed to start transcript watcher", "error", err)
+		}
+	}
+
 	// Setup UI file server
 	uiFS, err := ui.GetAssets()
 	if err != nil {
@@ -60,6 +73,8 @@ func main() {
 	mux.Handle("/", http.FileServer(http.FS(uiFS)))
 	mux.HandleFunc("/agents", handleAgents(uiFS))
 	mux.HandleFunc("/api/status", handleStatus(logger, dp))
+	mux.HandleFunc("/api/events", handleEvents(broadcaster))
+	mux.HandleFunc("/api/hooks/receive", handleHookReceive(logger, broadcaster))
 
 	srv := &http.Server{
 		Addr:    ":" + port,
@@ -110,27 +125,24 @@ func handleStatus(logger *slog.Logger, dp *data.DataProvider) http.HandlerFunc {
 		var subAgents []data.SubAgentRun
 		var personas []data.AgentPersona
 		var models []data.Model
+		var skills []data.Skill
 		var basePath string
 
 		if dp != nil {
 			todos, _ = dp.GetTodos()
 			sessions, _ = dp.GetActiveSessions()
 			alerts, _ = dp.GetAlerts()
-			
-			// Append generated alerts
 			genAlerts, _ := dp.GetGeneratedAlerts()
 			alerts = append(alerts, genAlerts...)
-
 			gitLog, _ = dp.GetGitLog()
 			cronJobs, _ = dp.GetCronJobs()
 			costs, _ = dp.GetCosts()
 			tokenUsage, _ = dp.GetTokenUsage()
 			detailedUsage, _ = dp.GetDetailedUsage()
-			
 			subAgents, _ = dp.GetSubAgentActivity()
 			personas, _ = dp.GetAgentPersonas()
-
 			models, _ = dp.GetModels()
+			skills, _ = dp.GetSkills()
 			basePath = dp.BasePath
 		}
 
@@ -149,6 +161,7 @@ func handleStatus(logger *slog.Logger, dp *data.DataProvider) http.HandlerFunc {
 			SubAgents:     subAgents,
 			Personas:      personas,
 			Models:        models,
+			Skills:        skills,
 			BasePath:      basePath,
 		}
 
@@ -161,15 +174,65 @@ func handleStatus(logger *slog.Logger, dp *data.DataProvider) http.HandlerFunc {
 
 func handleAgents(uiFS fs.FS) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Serve agents.html
 		f, err := http.FS(uiFS).Open("agents.html")
 		if err != nil {
 			http.Error(w, "Page not found", http.StatusNotFound)
 			return
 		}
 		defer f.Close()
-
 		stat, _ := f.Stat()
 		http.ServeContent(w, r, "agents.html", stat.ModTime(), f)
+	}
+}
+
+func handleEvents(b *data.Broadcaster) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		clientChan := b.Register()
+		defer b.Unregister(clientChan)
+
+		notify := r.Context().Done()
+
+		for {
+			select {
+			case <-notify:
+				return
+			case event := <-clientChan:
+				data, _ := json.Marshal(event)
+				fmt.Fprintf(w, "data: %s\n\n", string(data))
+				w.(http.Flusher).Flush()
+			}
+		}
+	}
+}
+
+func handleHookReceive(logger *slog.Logger, b *data.Broadcaster) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var payload interface{}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			logger.Warn("failed to decode hook payload", "error", err)
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+
+		logger.Info("hook received", "payload", payload)
+
+		// Broadcast a refresh event to all frontend clients
+		b.Broadcast(data.Event{
+			Type:    "refresh",
+			Payload: payload,
+		})
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
 	}
 }

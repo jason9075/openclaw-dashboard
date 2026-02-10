@@ -3,6 +3,9 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(fetchStatus, 60000); // 60 seconds
     startCountdown(60);
 
+    // Setup SSE for real-time updates
+    setupSSE();
+
     // Slide Menu Logic
     const menu = document.getElementById('slide-menu');
     const overlay = document.getElementById('overlay');
@@ -57,6 +60,26 @@ async function fetchStatus() {
             statusEl.className = 'status-offline';
         }
     }
+}
+
+function setupSSE() {
+    const eventSource = new EventSource('/api/events');
+    
+    eventSource.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'refresh') {
+                console.log('Real-time refresh triggered by hook:', data.payload);
+                fetchStatus();
+            }
+        } catch (err) {
+            console.error('Failed to parse SSE event:', err);
+        }
+    };
+
+    eventSource.onerror = (err) => {
+        console.warn('SSE connection lost, retrying...', err);
+    };
 }
 
 function updateDashboard(data) {
@@ -127,7 +150,7 @@ function updateDashboard(data) {
         let saHtml = data.personas.map(p => `
             <div class="subagent-item persona-item">
                 <div>
-                    <div><strong>🧠 ${p.name}</strong></div>
+                    <div><strong>${p.emoji || '🧠'} ${p.name}</strong></div>
                     <small>ID: ${p.id} ${p.is_default ? '(Default)' : ''}</small>
                 </div>
                 <div class="badge online">Online</div>
@@ -223,8 +246,15 @@ function updateDashboard(data) {
     const skillsContent = document.getElementById('skills-content');
     if (data.skills && data.skills.length > 0) {
         skillsContent.innerHTML = `
-            <ul>
-                ${data.skills.map(s => `<li><strong>${s.name}</strong></li>`).join('')}
+            <ul class="skills-list">
+                ${data.skills.map(s => `
+                    <li>
+                        <div class="skill-item">
+                            <span class="skill-name">🛠 ${s.name}</span>
+                            <p class="skill-desc">${s.description || 'No description available'}</p>
+                        </div>
+                    </li>
+                `).join('')}
             </ul>
         `;
     } else {

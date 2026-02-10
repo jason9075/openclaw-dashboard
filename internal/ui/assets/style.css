@@ -611,6 +611,89 @@ button {
     pointer-events: auto;
 }
 
+/* Skills List */
+.skills-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.skills-list li {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--nord0);
+}
+
+.skills-list li:last-child {
+    border-bottom: none;
+}
+
+.skill-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.skill-name {
+    color: var(--nord7);
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.skill-desc {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin: 0;
+}
+
+/* Toast Notifications */
+.skill-toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--nord3);
+    color: var(--nord6);
+    padding: 12px 20px;
+    border-radius: 8px;
+    box-shadow: var(--shadow-md);
+    border-left: 4px solid var(--nord8);
+    z-index: 2000;
+    animation: slide-in 0.3s ease-out;
+    min-width: 250px;
+}
+
+.skill-toast.fade-out {
+    opacity: 0;
+    transform: translateX(20px);
+    transition: all 0.5s;
+}
+
+.toast-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.toast-icon {
+    font-size: 1.5rem;
+}
+
+.toast-info strong {
+    display: block;
+    color: var(--nord8);
+}
+
+.toast-info code {
+    background: var(--nord0);
+    padding: 2px 4px;
+    border-radius: 3px;
+    color: var(--nord9);
+}
+
+@keyframes slide-in {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
 /* Agent Personas */
 .section-title {
     font-size: 1.2rem;
@@ -671,6 +754,34 @@ button {
     background: var(--nord0);
     padding: var(--space-sm);
     border-radius: 4px;
+    margin-bottom: var(--space-sm);
+}
+
+.persona-skills {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.persona-skills .label {
+    font-size: 0.85rem;
+    color: var(--nord7);
+    font-weight: 500;
+}
+
+.skill-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.skill-tag {
+    background: var(--nord2);
+    color: var(--nord4);
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 12px;
+    border: 1px solid var(--nord3);
 }
 
 .path-item {

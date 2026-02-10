@@ -1,7 +1,10 @@
 
 document.addEventListener('DOMContentLoaded', () => {
     fetchAgents();
-    setInterval(fetchAgents, 5000); // Poll every 5s
+    setInterval(fetchAgents, 60000); // Fallback poll every 60s
+
+    // Real-time updates via SSE
+    setupSSE();
 
     // Slide Menu Logic (Reused)
     const menu = document.getElementById('slide-menu');
@@ -15,6 +18,55 @@ document.addEventListener('DOMContentLoaded', () => {
     if (overlay) overlay.addEventListener('click', () => { menu.classList.remove('open'); overlay.classList.remove('active'); });
     if (refreshBtn) refreshBtn.addEventListener('click', fetchAgents);
 });
+
+function setupSSE() {
+    const eventSource = new EventSource('/api/events');
+    
+    eventSource.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'refresh') {
+                console.log('Real-time refresh triggered by hook:', data.payload);
+                fetchAgents();
+            } else if (data.type === 'skill_use') {
+                showSkillHint(data.payload);
+            }
+        } catch (err) {
+            console.error('Failed to parse SSE event:', err);
+        }
+    };
+
+    eventSource.onerror = (err) => {
+        console.warn('SSE connection lost, retrying...', err);
+    };
+}
+
+function showSkillHint(payload) {
+    const { agent_id, skill } = payload;
+    
+    // Find the persona card or agent card
+    const personaCard = document.querySelector(`.agent-persona-card[data-id="${agent_id}"]`) || 
+                        document.querySelector(`.agent-card-full h3:contains("${agent_id}")`)?.closest('.agent-card-full');
+    
+    // For now, simpler: show a toast notification
+    const toast = document.createElement('div');
+    toast.className = 'skill-toast';
+    toast.innerHTML = `
+        <div class="toast-content">
+            <span class="toast-icon">⚡</span>
+            <div class="toast-info">
+                <strong>${agent_id}</strong> is using skill:
+                <code>${skill}</code>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.classList.add('fade-out');
+        setTimeout(() => toast.remove(), 500);
+    }, 3000);
+}
 
 async function fetchAgents() {
     const listContainer = document.getElementById('full-agent-list');
@@ -67,9 +119,9 @@ function renderAgents(data) {
         html += '<h2 class="section-title">Agent Personas (Isolated Brains)</h2>';
         html += personas.map(p => {
             return `
-            <div class="agent-persona-card ${p.is_default ? 'default-agent' : ''}">
+            <div class="agent-persona-card ${p.is_default ? 'default-agent' : ''}" data-id="${p.id}">
                 <div class="persona-header">
-                    <span class="persona-icon">🧠</span>
+                    <span class="persona-icon">${p.emoji || '🧠'}</span>
                     <div class="persona-info">
                         <h3>${p.name} ${p.is_default ? '<small>(Default)</small>' : ''}</h3>
                         <code>ID: ${p.id}</code>
@@ -85,11 +137,15 @@ function renderAgents(data) {
                         <span class="label">Agent Dir:</span>
                         <code class="path">${p.agent_dir}</code>
                     </div>
-                    <div class="path-item">
-                        <span class="label">Sessions:</span>
-                        <code class="path">${p.sessions_dir}</code>
+                </div>
+                ${p.skills && p.skills.length > 0 ? `
+                <div class="persona-skills">
+                    <span class="label">Enabled Skills:</span>
+                    <div class="skill-tags">
+                        ${p.skills.map(s => `<span class="skill-tag">${s}</span>`).join('')}
                     </div>
                 </div>
+                ` : ''}
             </div>
             `;
         }).join('');

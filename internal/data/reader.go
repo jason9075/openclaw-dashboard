@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 type TodoItem struct {
@@ -98,12 +100,14 @@ type Skill struct {
 
 // AgentPersona represents a long-lived agent configuration
 type AgentPersona struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Workspace string `json:"workspace"`
-	AgentDir  string `json:"agent_dir"`
-	Sessions  string `json:"sessions_dir"`
-	IsDefault bool   `json:"is_default"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Emoji     string   `json:"emoji"`
+	Workspace string   `json:"workspace"`
+	AgentDir  string   `json:"agent_dir"`
+	Sessions  string   `json:"sessions_dir"`
+	IsDefault bool     `json:"is_default"`
+	Skills    []string `json:"skills"` // Only non-built-in skills
 }
 
 type DataProvider struct {
@@ -117,14 +121,12 @@ func NewDataProvider() (*DataProvider, error) {
 	}
 
 	if basePath == "" {
-		// Priority search list for state directory
 		candidates := []string{
 			".openclaw",
 			"/home/jason9075/.openclaw",
 			"/home/clawbot/.openclaw",
 		}
 
-		// Search all /home/* directories
 		entries, err := os.ReadDir("/home")
 		if err == nil {
 			for _, e := range entries {
@@ -134,7 +136,6 @@ func NewDataProvider() (*DataProvider, error) {
 			}
 		}
 
-		// Find first existing that contains openclaw.json or subagents.json
 		for _, c := range candidates {
 			if _, err := os.Stat(filepath.Join(c, "openclaw.json")); err == nil {
 				basePath = c
@@ -146,7 +147,6 @@ func NewDataProvider() (*DataProvider, error) {
 			}
 		}
 
-		// Fallback to current user home
 		if basePath == "" {
 			if home, err := os.UserHomeDir(); err == nil {
 				basePath = filepath.Join(home, ".openclaw")
@@ -154,7 +154,6 @@ func NewDataProvider() (*DataProvider, error) {
 		}
 	}
 
-	// Ensure directory exists
 	if _, err := os.Stat(basePath); os.IsNotExist(err) {
 		_ = os.MkdirAll(basePath, 0755)
 	}
@@ -164,31 +163,65 @@ func NewDataProvider() (*DataProvider, error) {
 	return &DataProvider{BasePath: basePath}, nil
 }
 
+func (dp *DataProvider) expandPath(p string) string {
+	if strings.HasPrefix(p, "~") {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			return filepath.Join(home, p[1:])
+		}
+	}
+	return p
+}
+
+func (dp *DataProvider) normalizeOpenClawPath(p string) string {
+	p = dp.expandPath(p)
+	if strings.Contains(p, ".openclaw") {
+		parts := strings.SplitN(p, ".openclaw", 2)
+		if len(parts) == 2 {
+			newPath := filepath.Join(dp.BasePath, parts[1])
+			if _, err := os.Stat(newPath); err == nil {
+				return newPath
+			}
+		}
+	}
+	return p
+}
+
 func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
+	// 1. Load external skills first to use for filtering
+	externalSkills := make(map[string]bool)
+	skills, _ := dp.GetSkills()
+	for _, s := range skills {
+		externalSkills[s.Name] = true
+	}
+
 	configPath := filepath.Join(dp.BasePath, "openclaw.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		// Fallback to minimal "main" agent if config missing
-		return []AgentPersona{
-			{
-				ID:        "main",
-				Name:      "Main Agent",
-				Workspace: filepath.Join(dp.BasePath, "workspace"),
-				AgentDir:  filepath.Join(dp.BasePath, "agents", "main", "agent"),
-				Sessions:  filepath.Join(dp.BasePath, "agents", "main", "sessions"),
-				IsDefault: true,
-			},
-		}, nil
+		return []AgentPersona{{
+			ID:        "main",
+			Name:      "Main Agent",
+			Emoji:     "🧠",
+			Workspace: filepath.Join(dp.BasePath, "workspace"),
+			AgentDir:  filepath.Join(dp.BasePath, "agents", "main", "agent"),
+			Sessions:  filepath.Join(dp.BasePath, "agents", "main", "sessions"),
+			IsDefault: true,
+			Skills:    dp.getSkillNames(externalSkills),
+		}}, nil
 	}
 
 	var cfg struct {
 		Agents struct {
 			List []struct {
-				ID        string `json:"id"`
-				Name      string `json:"name"`
-				Workspace string `json:"workspace"`
-				AgentDir  string `json:"agentDir"`
-				Default   bool   `json:"default"`
+				ID        string   `json:"id"`
+				Name      string   `json:"name"`
+				Workspace string   `json:"workspace"`
+				AgentDir  string   `json:"agentDir"`
+				Default   bool     `json:"default"`
+				Skills    []string `json:"skills"`
+				Identity  struct {
+					Emoji string `json:"emoji"`
+				} `json:"identity"`
 			} `json:"list"`
 		} `json:"agents"`
 	}
@@ -203,7 +236,7 @@ func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
 			continue
 		}
 
-		workspace := a.Workspace
+		workspace := dp.normalizeOpenClawPath(a.Workspace)
 		if workspace == "" {
 			if id == "main" {
 				workspace = filepath.Join(dp.BasePath, "workspace")
@@ -212,25 +245,57 @@ func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
 			}
 		}
 
-		agentDir := a.AgentDir
+		agentDir := dp.normalizeOpenClawPath(a.AgentDir)
 		if agentDir == "" {
 			agentDir = filepath.Join(dp.BasePath, "agents", id, "agent")
 		}
 
 		sessionsDir := filepath.Join(dp.BasePath, "agents", id, "sessions")
+		sessionsDir = dp.normalizeOpenClawPath(sessionsDir)
 
 		name := a.Name
 		if name == "" {
 			name = strings.Title(id)
 		}
 
+		emoji := a.Identity.Emoji
+		if emoji == "" {
+			emoji = dp.readEmojiFromIdentity(workspace)
+		}
+		if emoji == "" {
+			lid := strings.ToLower(id)
+			if strings.Contains(lid, "coder") {
+				emoji = "💻"
+			} else if strings.Contains(lid, "research") {
+				emoji = "🔍"
+			} else if strings.Contains(lid, "schedule") {
+				emoji = "📅"
+			} else {
+				emoji = "🧠"
+			}
+		}
+
+		// Filter skills: only keep non-built-in ones
+		var filteredSkills []string
+		if a.Skills != nil {
+			for _, s := range a.Skills {
+				if externalSkills[s] {
+					filteredSkills = append(filteredSkills, s)
+				}
+			}
+		} else {
+			filteredSkills = dp.getSkillNames(externalSkills)
+		}
+
 		personas = append(personas, AgentPersona{
 			ID:        id,
 			Name:      name,
+			Emoji:     emoji,
 			Workspace: workspace,
 			AgentDir:  agentDir,
 			Sessions:  sessionsDir,
 			IsDefault: a.Default || (id == "main" && len(cfg.Agents.List) == 1),
+			Skills:    filteredSkills,
 		})
 	}
 
@@ -238,20 +303,87 @@ func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
 		personas = append(personas, AgentPersona{
 			ID:        "main",
 			Name:      "Main Agent",
+			Emoji:     "🧠",
 			Workspace: filepath.Join(dp.BasePath, "workspace"),
 			AgentDir:  filepath.Join(dp.BasePath, "agents", "main", "agent"),
 			Sessions:  filepath.Join(dp.BasePath, "agents", "main", "sessions"),
 			IsDefault: true,
+			Skills:    dp.getSkillNames(externalSkills),
 		})
 	}
 
 	return personas, nil
 }
 
+// Helper for GetSkills to avoid recursion
+func (dp *DataProvider) GetAgentPersonasInternal() ([]AgentPersona, error) {
+	configPath := filepath.Join(dp.BasePath, "openclaw.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return []AgentPersona{{
+			Workspace: filepath.Join(dp.BasePath, "workspace"),
+		}}, nil
+	}
+	var cfg struct {
+		Agents struct {
+			List []struct {
+				ID        string `json:"id"`
+				Workspace string `json:"workspace"`
+			} `json:"list"`
+		} `json:"agents"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	var personas []AgentPersona
+	for _, a := range cfg.Agents.List {
+		workspace := dp.normalizeOpenClawPath(a.Workspace)
+		if workspace == "" {
+			if a.ID == "main" {
+				workspace = filepath.Join(dp.BasePath, "workspace")
+			} else {
+				workspace = filepath.Join(dp.BasePath, "workspace-"+a.ID)
+			}
+		}
+		personas = append(personas, AgentPersona{Workspace: workspace})
+	}
+	return personas, nil
+}
+
+func (dp *DataProvider) getSkillNames(m map[string]bool) []string {
+	var names []string
+	for k := range m {
+		names = append(names, k)
+	}
+	return names
+}
+
+func (dp *DataProvider) readEmojiFromIdentity(workspace string) string {
+	path := filepath.Join(workspace, "IDENTITY.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.Contains(trimmed, "Emoji:") {
+			parts := strings.SplitN(trimmed, ":", 2)
+			if len(parts) == 2 {
+				emoji := strings.TrimSpace(parts[1])
+				emoji = strings.Trim(emoji, "*")
+				emoji = strings.TrimSpace(emoji)
+				if emoji != "" {
+					return emoji
+				}
+			}
+		}
+	}
+	return ""
+}
+
 func (dp *DataProvider) GetSubAgentActivity() ([]SubAgentRun, error) {
 	var allRuns []SubAgentRun
-
-	// 1. Try legacy/current format: subagents.json
 	legacyPath := filepath.Join(dp.BasePath, "subagents.json")
 	if data, err := os.ReadFile(legacyPath); err == nil {
 		var runs []SubAgentRun
@@ -259,12 +391,10 @@ func (dp *DataProvider) GetSubAgentActivity() ([]SubAgentRun, error) {
 			allRuns = append(allRuns, runs...)
 		}
 	}
-
-	// 2. Try new format: subagents/runs.json
 	path := filepath.Join(dp.BasePath, "subagents", "runs.json")
 	if data, err := os.ReadFile(path); err == nil {
 		var registry PersistedSubagentRegistry
-		if err := json.Unmarshal(data, &registry); err == nil {
+		if err := json.Unmarshal(data, &registry); err != nil {
 			for _, record := range registry.Runs {
 				name := record.Label
 				if name == "" {
@@ -297,8 +427,112 @@ func (dp *DataProvider) GetSubAgentActivity() ([]SubAgentRun, error) {
 			}
 		}
 	}
-
 	return allRuns, nil
+}
+
+func (dp *DataProvider) WatchTranscripts(broadcaster *Broadcaster) error {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return err
+	}
+	personas, _ := dp.GetAgentPersonas()
+	for _, p := range personas {
+		if _, err := os.Stat(p.Sessions); err == nil {
+			watcher.Add(p.Sessions)
+		}
+	}
+	go func() {
+		defer watcher.Close()
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				if event.Op&fsnotify.Write == fsnotify.Write {
+					if filepath.Ext(event.Name) == ".jsonl" {
+						dp.handleTranscriptChange(event.Name, broadcaster)
+					}
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				fmt.Fprintf(os.Stderr, "watcher error: %v\n", err)
+			}
+		}
+	}()
+	return nil
+}
+
+func (dp *DataProvider) handleTranscriptChange(path string, broadcaster *Broadcaster) {
+	file, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	stat, _ := file.Stat()
+	if stat.Size() < 2000 {
+		file.Seek(0, 0)
+	} else {
+		file.Seek(-2000, 2)
+	}
+	scanner := bufio.NewScanner(file)
+	var lastLine string
+	for scanner.Scan() {
+		lastLine = scanner.Text()
+	}
+	if lastLine == "" {
+		return
+	}
+	var entry struct {
+		Message struct {
+			Role    string `json:"role"`
+			Content []struct {
+				Type string `json:"type"`
+				Name string `json:"name"`
+			} `json:"content"`
+			ToolCalls []struct {
+				Function struct {
+					Name string `json:"name"`
+				} `json:"function"`
+			} `json:"tool_calls"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal([]byte(lastLine), &entry); err != nil {
+		return
+	}
+	agentID := filepath.Base(filepath.Dir(filepath.Dir(path)))
+	for _, c := range entry.Message.Content {
+		if c.Type == "tool_use" || c.Type == "tool_call" {
+			broadcaster.Broadcast(Event{
+				Type: "skill_use",
+				Payload: map[string]string{
+					"agent_id": agentID,
+					"skill":    c.Name,
+					"status":   "executing",
+				},
+			})
+			return
+		}
+	}
+	for _, tc := range entry.Message.ToolCalls {
+		if tc.Function.Name != "" {
+			broadcaster.Broadcast(Event{
+				Type: "skill_use",
+				Payload: map[string]string{
+					"agent_id": agentID,
+					"skill":    tc.Function.Name,
+					"status":   "executing",
+				},
+			})
+			return
+		}
+	}
+	broadcaster.Broadcast(Event{
+		Type:    "refresh",
+		Payload: map[string]string{"reason": "transcript_update", "agent_id": agentID},
+	})
 }
 
 func (dp *DataProvider) ListFiles() ([]string, error) {
@@ -415,10 +649,113 @@ func (dp *DataProvider) GetModels() ([]Model, error) {
 	path := filepath.Join(dp.BasePath, "models.json")
 	if data, err := os.ReadFile(path); err == nil {
 		var models []Model
-		json.Unmarshal(data, &models)
-		return models, nil
+		if err := json.Unmarshal(data, &models); err == nil {
+			return models, nil
+		}
+	}
+	configPath := filepath.Join(dp.BasePath, "openclaw.json")
+	if data, err := os.ReadFile(configPath); err == nil {
+		var cfg struct {
+			Agents struct {
+				Defaults struct {
+					Models map[string]interface{} `json:"models"`
+				} `json:"defaults"`
+			} `json:"agents"`
+		}
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			var models []Model
+			for id := range cfg.Agents.Defaults.Models {
+				models = append(models, Model{
+					Name: id,
+					Type: "chat",
+				})
+			}
+			return models, nil
+		}
 	}
 	return []Model{}, nil
+}
+
+func (dp *DataProvider) GetSkills() ([]Skill, error) {
+	var allSkills []Skill
+	seen := make(map[string]bool)
+	configPath := filepath.Join(dp.BasePath, "openclaw.json")
+	var extraDirs []string
+	if data, err := os.ReadFile(configPath); err == nil {
+		var cfg struct {
+			Skills struct {
+				Load struct {
+					ExtraDirs []string `json:"extraDirs"`
+				} `json:"load"`
+			} `json:"skills"`
+		}
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			extraDirs = cfg.Skills.Load.ExtraDirs
+		}
+	}
+	managedPath := filepath.Join(dp.BasePath, "skills")
+	dp.scanSkillsDir(managedPath, &allSkills, seen)
+	for _, dir := range extraDirs {
+		dp.scanSkillsDir(dp.normalizeOpenClawPath(dir), &allSkills, seen)
+	}
+	personas, _ := dp.GetAgentPersonasInternal()
+	for _, p := range personas {
+		workspaceSkills := filepath.Join(p.Workspace, "skills")
+		dp.scanSkillsDir(workspaceSkills, &allSkills, seen)
+	}
+	return allSkills, nil
+}
+
+func (dp *DataProvider) scanSkillsDir(dir string, skills *[]Skill, seen map[string]bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		skillID := e.Name()
+		if seen[skillID] {
+			continue
+		}
+		skillPath := filepath.Join(dir, skillID, "SKILL.md")
+		if _, err := os.Stat(skillPath); err == nil {
+			file, err := os.Open(skillPath)
+			if err != nil {
+				continue
+			}
+			name := skillID
+			description := ""
+			scanner := bufio.NewScanner(file)
+			inFrontmatter := false
+			for scanner.Scan() {
+				line := scanner.Text()
+				if line == "---" {
+					if !inFrontmatter {
+						inFrontmatter = true
+						continue
+					} else {
+						break
+					}
+				}
+				if inFrontmatter {
+					if strings.HasPrefix(line, "name:") {
+						name = strings.TrimSpace(strings.TrimPrefix(line, "name:"))
+					} else if strings.HasPrefix(line, "description:") {
+						description = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
+						description = strings.Trim(description, "\"")
+					}
+				}
+			}
+			file.Close()
+			*skills = append(*skills, Skill{
+				Name:        name,
+				Description: description,
+			})
+			seen[skillID] = true
+		}
+	}
 }
 
 type UsageBucket struct {
@@ -428,11 +765,6 @@ type UsageBucket struct {
 	CacheRead   int64   `json:"cache_read"`
 	TotalTokens int64   `json:"total_tokens"`
 	Cost        float64 `json:"cost"`
-}
-
-type ModelUsage struct {
-	Model string `json:"model"`
-	UsageBucket
 }
 
 func FriendlyModelName(model string) string {
@@ -464,7 +796,6 @@ func (dp *DataProvider) GetDetailedUsage() (map[string]UsageBucket, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	for _, f := range files {
 		file, err := os.Open(f)
 		if err != nil {
@@ -490,11 +821,9 @@ func (dp *DataProvider) GetDetailedUsage() (map[string]UsageBucket, error) {
 			if err := json.Unmarshal(scanner.Bytes(), &line); err != nil {
 				continue
 			}
-
 			if line.Message.Role != "assistant" || line.Message.Model == "" {
 				continue
 			}
-
 			name := FriendlyModelName(line.Message.Model)
 			bucket := usage[name]
 			bucket.Calls++
@@ -507,14 +836,11 @@ func (dp *DataProvider) GetDetailedUsage() (map[string]UsageBucket, error) {
 		}
 		file.Close()
 	}
-
 	return usage, nil
 }
 
 func (dp *DataProvider) GetGeneratedAlerts() ([]Alert, error) {
 	var alerts []Alert
-
-	// 1. Memory usage alert
 	stats, err := exec.Command("ps", "-A", "-o", "rss=").Output()
 	if err == nil {
 		totalRSS := 0.0
@@ -522,7 +848,7 @@ func (dp *DataProvider) GetGeneratedAlerts() ([]Alert, error) {
 			rss, _ := strconv.ParseFloat(line, 64)
 			totalRSS += rss
 		}
-		if totalRSS > 512000 { // > 500MB
+		if totalRSS > 512000 {
 			alerts = append(alerts, Alert{
 				Level:   "WARNING",
 				Message: fmt.Sprintf("High system memory usage: %.0f MB", totalRSS/1024),
@@ -530,8 +856,6 @@ func (dp *DataProvider) GetGeneratedAlerts() ([]Alert, error) {
 			})
 		}
 	}
-
-	// 2. Cost alert
 	usage, err := dp.GetDetailedUsage()
 	if err == nil {
 		totalCost := 0.0
@@ -546,6 +870,5 @@ func (dp *DataProvider) GetGeneratedAlerts() ([]Alert, error) {
 			})
 		}
 	}
-
 	return alerts, nil
 }

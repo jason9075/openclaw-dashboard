@@ -39,8 +39,9 @@ This project uses **Nix Flakes** for reproducible builds and **Go** for the back
 ### 2.2 Go (Backend)
 - **Project Structure**:
     - `cmd/server/`: Entry point.
-    - `internal/`: Private application logic.
-    - `ui/`: Embedded static assets (HTML/CSS/JS).
+    - `internal/data/`: Data providers, real-time watchers, and broadcasters.
+    - `internal/monitor/`: System health and gateway monitoring.
+    - `internal/ui/`: Embedded static assets (HTML/CSS/JS).
 - **Formatting**: Always run `gofmt`.
 - **Error Handling**:
     - Handle errors explicitly. Do not ignore errors.
@@ -49,9 +50,9 @@ This project uses **Nix Flakes** for reproducible builds and **Go** for the back
     - PascalCase for exported symbols.
     - camelCase for unexported.
     - Short variable names for short scopes (`i`, `ctx`), descriptive for larger scopes.
-- **Concurrency**:
-    - Use `context.Context` for cancellation and timeouts.
-    - Prefer channels/goroutines for the polling mechanism.
+- **Real-time Engine**:
+    - Use `Broadcaster` in `internal/data` for SSE event distribution.
+    - Use `fsnotify` for real-time transcript monitoring.
 - **Embedding**:
     - Use `//go:embed` directives.
     - Ensure the `ui` directory is embedded correctly into the binary.
@@ -64,6 +65,7 @@ This project uses **Nix Flakes** for reproducible builds and **Go** for the back
     - No external fonts unless locally embedded.
 - **JavaScript**:
     - Modern ES6+.
+    - Use `EventSource` for real-time updates via SSE.
     - Use `fetch()` for API calls.
     - Avoid global state; encapsulate logic in functions or classes.
 
@@ -100,8 +102,15 @@ Use these CSS variables in `style.css`:
 - **Reproducibility**: Pin inputs in `flake.lock`.
 
 ## 3. Data & Directory conventions
-- **Config Path**: `~/.openclaw` (Resolve using `os.UserHomeDir`).
+- **Config Path Discovery**: `DataProvider` searches for `.openclaw` in order:
+    1.  `OPENCLAW_STATE_DIR` / `CLAWDBOT_STATE_DIR`
+    2.  Local project `./.openclaw`
+    3.  `/home/jason9075/.openclaw` (Fallback)
+    4.  `~/.openclaw`
 - **Data Files**:
+    - `openclaw.json` -> Personas & Skills config
+    - `subagents/runs.json` -> Subagent activity registry
+    - `agents/*/sessions/*.jsonl` -> Transcripts (Skills usage & Costs)
     - `logs/error.log` -> Alerts
     - `todo.json` -> Kanban
     - `sessions/active.json` -> Sessions
@@ -112,21 +121,28 @@ When writing code for this repository, Agents must:
 
 1.  **Check Constraints**: Verify if a standard library solution exists before adding a generic dependency.
 2.  **Verify UI**: When generating CSS, ensure contrast ratios match the Nord theme guidelines (High contrast, no transparency).
-3.  **Test First**: Create a test case for backend logic before implementing the full feature.
-4.  **Flake Integrity**: Do not modify `flake.nix` unless adding a required system tool.
-5.  **Documentation**: Update `README.md` if new environment variables or config files are required.
+3.  **Path Normalization**: Use `DataProvider.normalizeOpenClawPath()` to handle cross-user path discrepancies (e.g., mapping `/home/clawbot` to the current system user).
+4.  **Real-time First**: Prefer using the `Broadcaster` for UI updates over suggesting more polling.
+5.  **Skill Filtering**: Only display external/managed skills; filter out built-in system tools (check for files in `skills/` or `extraDirs`).
 6.  **Idempotency**: Ensure setup scripts or run commands are idempotent.
 
 ## 5. Specific Feature Implementation Guides
 
-### Dashboard Refresh Logic
-- Implement a `time.Ticker` in Go to refresh data.
-- Frontend should poll `/api/status` every 60s.
-- Use `fsnotify` if file system events are needed for immediate updates.
+### Dashboard Refresh Logic (Event-Driven)
+- **SSE**: The frontend connects to `/api/events` using `EventSource`.
+- **Hooks**: OpenClaw sends events to `POST /api/hooks/receive`, which are then broadcasted to the frontend via SSE.
+- **Polling**: Keep a 60s safety fallback poll in the frontend.
+- **FSNotify**: Go backend watches `*.jsonl` files for immediate Skill usage detection.
+
+### Real-time Skill Monitoring
+- Watcher parses the last line of modified `*.jsonl` files.
+- Identifies `tool_use` (Anthropic) or `tool_calls` (OpenAI).
+- Broadcasts `skill_use` events to trigger UI Toast notifications.
 
 ### Error Logging
-- Use a structured logger (slog or simple log package) writing to stdout/stderr.
-- Dashboard should read the application's own logs if required, but primarily monitors the user's system logs defined in configuration.
+- Use a structured logger (slog) writing to stdout.
+- Dashboard generates its own alerts based on system thresholds (e.g., Memory > 500MB, Cost > $20).
+
 
 ---
 *Generated for OpenClaw Dashboard Development*
