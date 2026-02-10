@@ -30,6 +30,8 @@ type DashboardState struct {
 	SubAgents   []data.SubAgentRun      `json:"sub_agents"`
 	Models      []data.Model            `json:"models"`
 	Skills      []data.Skill            `json:"skills"`
+	BasePath    string                  `json:"base_path"`
+	Files       []string                `json:"files"`
 }
 
 var startTime = time.Now()
@@ -45,7 +47,6 @@ func main() {
 	dp, err := data.NewDataProvider()
 	if err != nil {
 		logger.Error("failed to initialize data provider", "error", err)
-		// We don't exit, just continue with empty data potentially
 	}
 
 	// Setup UI file server
@@ -108,6 +109,8 @@ func handleStatus(logger *slog.Logger, dp *data.DataProvider) http.HandlerFunc {
 		var subAgents []data.SubAgentRun
 		var models []data.Model
 		var skills []data.Skill
+		var basePath string
+		var files []string
 
 		if dp != nil {
 			todos, _ = dp.GetTodos()
@@ -117,25 +120,35 @@ func handleStatus(logger *slog.Logger, dp *data.DataProvider) http.HandlerFunc {
 			cronJobs, _ = dp.GetCronJobs()
 			costs, _ = dp.GetCosts()
 			tokenUsage, _ = dp.GetTokenUsage()
-			subAgents, _ = dp.GetSubAgentActivity()
+			
+			// Combine runs and defined bots
+			runs, _ := dp.GetSubAgentActivity()
+			bots, _ := dp.GetDefinedAgents()
+			
+			subAgents = append(runs, bots...)
+
 			models, _ = dp.GetModels()
 			skills, _ = dp.GetSkills()
+			basePath = dp.BasePath
+			files, _ = dp.ListFiles()
 		}
 
 		state := DashboardState{
-			Timestamp: time.Now(),
-			Uptime:    time.Since(startTime).String(),
-			System:    sysStats,
-			Todos:     todos,
-			Sessions:  sessions,
-			Alerts:    alerts,
-			GitLog:    gitLog,
-			CronJobs:  cronJobs,
-			Costs:     costs,
-			TokenUsage: tokenUsage,
-			SubAgents: subAgents,
-			Models:    models,
-			Skills:    skills,
+			Timestamp:   time.Now(),
+			Uptime:      time.Since(startTime).String(),
+			System:      sysStats,
+			Todos:       todos,
+			Sessions:    sessions,
+			Alerts:      alerts,
+			GitLog:      gitLog,
+			CronJobs:    cronJobs,
+			Costs:       costs,
+			TokenUsage:  tokenUsage,
+			SubAgents:   subAgents,
+			Models:      models,
+			Skills:      skills,
+			BasePath:    basePath,
+			Files:       files,
 		}
 
 		w.Header().Set("Content-Type", "application/json")

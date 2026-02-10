@@ -48,7 +48,7 @@ air:
 
 # Start browser-sync proxy
 live:
-    npx -y browser-sync start --proxy "localhost:8080" --files "internal/ui/assets/*.css, internal/ui/assets/*.js, internal/ui/assets/*.html" --port 3000 --no-open
+    npx -y browser-sync start --proxy "localhost:8080" --files "internal/ui/assets/*.css, internal/ui/assets/*.js, internal/ui/assets/*.html" --port 3000
 
 # Run both Air and Browser-Sync for development
 dev:
