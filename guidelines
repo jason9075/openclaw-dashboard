@@ -1,0 +1,78 @@
+Development Guidelines: OpenClaw Dashboard (Nord Edition)
+1. Visual Design: Solid Nord
+
+Since we are ditching transparency, the UI will focus on high contrast and color-coded information using the four Nord sub-palettes:
+
+    Background (Polar Night): Use #2E3440 for the main canvas and #3B4252 for card backgrounds to create depth without blur.
+
+    Typography (Snow Storm): Primary text in #ECEFF4, secondary in #D8DEE9.
+
+    Accents (Frost): Use #88C0D0 (Primary Frost) for active states, buttons, and "Online" indicators.
+
+    Status (Aurora): * Success/Health: #A3BE8C (Green)
+
+        Warnings/Alerts: #EBCB8B (Yellow)
+
+        Errors/Critical: #BF616A (Red)
+
+2. Backend Architecture (Go)
+
+The Go backend will serve as a lightweight API and file server.
+
+    File I/O: Use os.UserHomeDir() to reliably locate ~/.openclaw across Linux and macOS.
+
+    Concurrency: Use a time.Ticker in a goroutine to poll the directory for updates, or fsnotify for event-driven refreshes.
+
+    Embedding: Use the embed package to bake the frontend into the Go binary:
+    Go
+
+    //go:embed ui/*
+    var content embed.FS
+
+3. Data Schema & Directory Mapping
+
+The dashboard will map specific files in ~/.openclaw to the 10 panels:
+Dashboard Panel	Target File/Resource	Data Type
+System Health	/proc (Linux) or sysctl (macOS)	PID, Mem, Uptime
+Alerts Banner	logs/error.log or alerts.json	String/Level
+Cost Cards	data/usage.db or costs.json	Float64
+Kanban Board	todo.json	Struct Array
+Cron Jobs	crontabs.json	Cron Schedule
+Active Sessions	sessions/active.json	Map[string]Session
+Git Log	exec.Command("git", "log") in repo	String
+4. Frontend Implementation (Zero Dependencies)
+
+    CSS Grid Layout: Define a 12-column grid to handle the 10 panels across different screen sizes.
+
+    State Management: Use a simple fetch() loop in JavaScript to grab JSON from the Go /api/status endpoint every 60 seconds.
+
+    Transitions: Use CSS transition: background-color 0.2s ease for hover effects on cards instead of transparency.
+
+5. Implementation Roadmap
+Step 1: Core Server
+
+Create the basic Go HTTP server that serves a "Hello World" from an embedded file and prints the contents of ~/.openclaw to the terminal.
+Step 2: The Data Parser
+
+Define the Go structs that match the OpenClaw configuration files. Implement a Refresh() function that reads these files and returns a unified DashboardState JSON.
+Step 3: Nord CSS Framework
+
+Build a style.css using CSS Variables for the Nord colors. This makes it easy to maintain the "Solid" look:
+CSS
+
+:root {
+  --nord0: #2E3440; /* Darkest */
+  --nord3: #4C566A; /* Lighter Grey */
+  --nord8: #88C0D0; /* Frost Blue */
+}
+.card {
+  background-color: var(--nord1);
+  border: 1px solid var(--nord3);
+  padding: 1rem;
+}
+
+6. Senior Dev Workflow (NixOS/Neovim)
+
+    Nix: Add a flake.nix with devShells including go, gopls, and templ (if you want type-safe HTML).
+
+    Neovim: Leverage nvim-lspconfig with gopls for deep static analysis of your file parsing logic.
