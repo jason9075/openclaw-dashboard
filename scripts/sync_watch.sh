@@ -26,8 +26,9 @@ fswatch -r -l 0.2 \
     --event Created --event Updated --event Removed --event Renamed \
     . 2>/dev/null | while read -r changed_path; do
     
-    # Check if the change matches our extensions and isn't in .git or tmp
-    if echo "$changed_path" | grep -iE "$WATCH_EXTS" | grep -vE "\.git|tmp/" > /dev/null; then
+    # Check if the change is in .git, tmp, openclaw, or is the trigger file
+    if echo "$changed_path" | grep -vE "\.git|tmp/|openclaw$|\.sync_trigger" > /dev/null; then
+        echo "📝 File changed: $changed_path"
         touch "$TRIGGER_FILE"
     fi
 done &
@@ -48,6 +49,8 @@ while true; do
         if rsync -rtvz --delete \
           --exclude '.git/' \
           --exclude 'tmp/' \
+          --exclude 'openclaw' \
+          --exclude 'server' \
           ./ "$REMOTE"; then
             echo "✅ Sync completed at $(date '+%H:%M:%S')"
         else

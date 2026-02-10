@@ -22,7 +22,6 @@
             just
             nodejs_22 # For any frontend tooling if needed later, though vanilla is preferred
             fswatch
-            xdotool
           ];
 
           shellHook = ''

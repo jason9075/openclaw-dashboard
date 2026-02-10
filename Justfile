@@ -46,8 +46,11 @@ sync:
 air:
     air
 
-# Reload Chromium browser
-reload-browser:
-    @echo "Reloading Chromium..."
-    @xdotool search --onlyvisible --class chromium windowactivate --sync key F5 || true
+# Start browser-sync proxy
+live:
+    npx -y browser-sync start --proxy "localhost:8080" --files "internal/ui/assets/*.css, internal/ui/assets/*.js, internal/ui/assets/*.html" --port 3000 --no-open
+
+# Run both Air and Browser-Sync for development
+dev:
+    npx -y concurrently -k -n "GO,UI" -c "cyan,magenta" "air" "just live"
 

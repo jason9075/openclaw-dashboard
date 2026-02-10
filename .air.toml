@@ -1,12 +1,12 @@
 root = "."
 tmp_dir = "tmp"
-i
 [build]
   # 使用 just build 編譯出 binary
   cmd = "just build"
   # 指定編譯後的執行檔路徑
-  # bin = "./openclaw"
-  full_bin = "./openclaw & (sleep 0.5 && just reload-browser)"
+  # 指定編譯後的執行檔路徑
+  bin = "./openclaw"
+  # full_bin = "./openclaw & (sleep 0.5 && just reload-browser)"
   # 包含要監控的副檔名
   include_ext = ["go", "tpl", "html", "tmpl", "css", "js", "nix", "toml"]
   # 排除不需要監控的目錄
