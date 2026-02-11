@@ -250,7 +250,7 @@ function updateDashboard(data) {
                 ${data.skills.map(s => `
                     <li>
                         <div class="skill-item">
-                            <span class="skill-name">🛠 ${s.name}</span>
+                            <span class="skill-name">🎯 ${s.name}</span>
                             <p class="skill-desc">${s.description || 'No description available'}</p>
                         </div>
                     </li>

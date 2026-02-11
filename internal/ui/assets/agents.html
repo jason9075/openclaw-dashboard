@@ -150,12 +150,62 @@
             <div class="modal-header">
                 <div class="header-main">
                     <h2>Agent Detail: <span id="modal-agent-name"></span></h2>
-                    <select id="modal-session-select" class="nord-select"></select>
+                    <div class="header-sub">
+                        <select id="modal-session-select" class="nord-select"></select>
+                        <div id="modal-session-totals" class="session-totals"></div>
+                    </div>
                 </div>
                 <button onclick="closeDetailModal()" class="close-btn">&times;</button>
             </div>
             <div id="modal-conversation" class="modal-body">
                 <!-- Conversation turns will be injected here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Permissions Modal -->
+    <div id="permissions-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content mini-modal">
+            <div class="modal-header">
+                <h2>Profile Permissions: <span id="modal-perm-agent"></span></h2>
+                <button onclick="closeModal('permissions-modal')" class="close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="perm-detail">
+                    <label>Active Profile</label>
+                    <div id="modal-perm-profile" class="profile-tag-lg"></div>
+                    <p class="perm-desc" id="modal-perm-desc"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cron Modal -->
+    <div id="cron-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Scheduled Jobs: <span id="modal-cron-agent"></span></h2>
+                <button onclick="closeModal('cron-modal')" class="close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="modal-cron-list" class="cron-grid-detailed">
+                    <!-- Cron jobs will be injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Skills Modal -->
+    <div id="skills-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content mini-modal">
+            <div class="modal-header">
+                <h2>Enabled Skills: <span id="modal-skills-agent"></span></h2>
+                <button onclick="closeModal('skills-modal')" class="close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="modal-skills-list" class="skill-tags-lg">
+                    <!-- Skills will be injected here -->
+                </div>
             </div>
         </div>
     </div>
