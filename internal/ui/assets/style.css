@@ -1588,6 +1588,17 @@ button {
     100% { border-color: var(--border-color); box-shadow: var(--shadow-sm); }
 }
 
+.retention-warning {
+    background: rgba(208, 135, 112, 0.1);
+    color: var(--nord12);
+    padding: 10px 15px;
+    border-radius: 6px;
+    border: 1px solid var(--nord12);
+    font-size: 0.85rem;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
 .loading, .empty-state {
     text-align: center;
     padding: 40px;

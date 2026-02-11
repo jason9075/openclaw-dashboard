@@ -126,7 +126,7 @@ type AgentCall struct {
 
 type ConversationTurn struct {
 	UserMessage     string      `json:"user_message"`
-	UserSource      string      `json:"user_source"`
+	UserSource      string      `json:"user_source"` // "user", "system"
 	Reasoning       string      `json:"reasoning"`
 	FinalText       string      `json:"final_text"`
 	InputTokens     int64       `json:"input_tokens"`
@@ -253,54 +253,54 @@ func (dp *DataProvider) processRawStreamNewData(path string, offset int64, broad
 }
 
 func (dp *DataProvider) GetSessionsForAgent(agentID string) ([]SessionInfo, error) {
-	sessionsDir := filepath.Join(dp.BasePath, "agents", agentID, "sessions")
-	entries, err := os.ReadDir(sessionsDir)
-	if err != nil {
-		if os.IsNotExist(err) { return []SessionInfo{}, nil }
-		return nil, err
-	}
-	sessions := []SessionInfo{}
-	for _, e := range entries {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ".jsonl" {
-			info, _ := e.Info()
-			sessions = append(sessions, SessionInfo{ID: strings.TrimSuffix(e.Name(), ".jsonl"), UpdatedAt: info.ModTime()})
-		}
-	}
+	personas, _ := dp.GetAgentPersonas()
+	var sessionsDir string
+	for _, p := range personas { if p.ID == agentID { sessionsDir = p.Sessions; break } }
+	if sessionsDir == "" { sessionsDir = dp.normalizeOpenClawPath(filepath.Join(dp.BasePath, "agents", agentID, "sessions")) }
+	entries, err := os.ReadDir(sessionsDir); if err != nil { if os.IsNotExist(err) { return []SessionInfo{}, nil }; return nil, err }
+	var sessions []SessionInfo
+	for _, e := range entries { if !e.IsDir() && filepath.Ext(e.Name()) == ".jsonl" { info, _ := e.Info(); sessions = append(sessions, SessionInfo{ID: strings.TrimSuffix(e.Name(), ".jsonl"), UpdatedAt: info.ModTime()}) } }
 	return sessions, nil
 }
 
 func (dp *DataProvider) GetSessionDetails(agentID string, sessionID string) (*SessionDetails, error) {
-	sessionFile := filepath.Join(dp.BasePath, "agents", agentID, "sessions", sessionID+".jsonl")
+	personas, _ := dp.GetAgentPersonas()
+	var sessionsDir string
+	for _, p := range personas { if p.ID == agentID { sessionsDir = p.Sessions; break } }
+	if sessionsDir == "" { sessionsDir = dp.normalizeOpenClawPath(filepath.Join(dp.BasePath, "agents", agentID, "sessions")) }
+	sessionFile := filepath.Join(sessionsDir, sessionID+".jsonl")
 	file, err := os.Open(sessionFile); if err != nil { return nil, err }; defer file.Close()
 	details := &SessionDetails{AgentID: agentID, SessionID: sessionID, Turns: []ConversationTurn{}}
-	scanner := bufio.NewScanner(file); var currentTurn *ConversationTurn; var reasoningBuilder strings.Builder
+	scanner := bufio.NewScanner(file)
+	buf := make([]byte, 0, 64*1024); scanner.Buffer(buf, 1024*1024)
+	var currentTurn *ConversationTurn; var reasoningBuilder strings.Builder
 	for scanner.Scan() {
 		rawLine := scanner.Bytes()
-		var meta struct { Timestamp string `json:"timestamp"`; Message struct { Role string `json:"role"`; Usage struct { Input int64 `json:"input"`; Output int64 `json:"output"`; CacheRead int64 `json:"cacheRead"`; Cost struct { Total float64 `json:"total"` } `json:"cost"` } `json:"usage"`; Content interface{} `json:"content"` } `json:"message"` }
+		var meta struct { Timestamp string `json:"timestamp"`; Message struct { Role string `json:"role"` } `json:"message"` }
 		if err := json.Unmarshal(rawLine, &meta); err != nil { continue }
 		if meta.Message.Role == "user" {
 			if currentTurn != nil { currentTurn.Reasoning = reasoningBuilder.String(); details.Turns = append(details.Turns, *currentTurn); reasoningBuilder.Reset() }
 			ctxFiles, ctxChars := dp.estimateContextStats(agentID)
 			currentTurn = &ConversationTurn{Timestamp: meta.Timestamp, ContextFiles: ctxFiles, ContextChars: ctxChars, UserSource: "user"}
-			if content, ok := meta.Message.Content.(string); ok { currentTurn.UserMessage = content
-			} else if contentArr, ok := meta.Message.Content.([]interface{}); ok {
-				for _, part := range contentArr { if p, ok := part.(map[string]interface{}); ok && p["type"] == "text" { currentTurn.UserMessage = p["text"].(string) } }
+			var contentLine struct { Message struct { Content interface{} `json:"content"` } `json:"message"` }
+			if err := json.Unmarshal(rawLine, &contentLine); err == nil {
+				if content, ok := contentLine.Message.Content.(string); ok { currentTurn.UserMessage = content
+				} else if contentArr, ok := contentLine.Message.Content.([]interface{}); ok {
+					for _, part := range contentArr { if p, ok := part.(map[string]interface{}); ok && p["type"] == "text" { if val, ok := p["text"].(string); ok { currentTurn.UserMessage = val } } }
+				}
 			}
 			msg := strings.TrimSpace(currentTurn.UserMessage)
 			if strings.HasPrefix(msg, "A new session was started") || strings.HasPrefix(msg, "HEARTBEAT") || strings.HasPrefix(msg, "System: [") || strings.Contains(msg, "configured persona") || strings.Contains(msg, "An async command you ran earlier has completed") { currentTurn.UserSource = "system" }
 		} else if meta.Message.Role == "assistant" && currentTurn != nil {
-			u := meta.Message.Usage
-			currentTurn.InputTokens += u.Input; currentTurn.OutputTokens += u.Output; currentTurn.CacheReadTokens += u.CacheRead; currentTurn.Cost += u.Cost.Total
-			details.TotalTokens += (u.Input + u.Output); details.TotalCacheRead += u.CacheRead; details.TotalCost += u.Cost.Total
-			currentTurn.Timestamp = meta.Timestamp
-			if content, ok := meta.Message.Content.(string); ok { currentTurn.FinalText = content
-				think := extractThinkingFromTaggedText(content); if think != "" { reasoningBuilder.WriteString(think); currentTurn.FinalText = stripThinkingTagsFromText(content) }
-			} else if contentArr, ok := meta.Message.Content.([]interface{}); ok {
-				for _, part := range contentArr {
-					if p, ok := part.(map[string]interface{}); ok {
-						if p["type"] == "thinking" { reasoningBuilder.WriteString(p["thinking"].(string))
-						} else if p["type"] == "text" { currentTurn.FinalText += p["text"].(string) }
-					}
+			var assistLine struct { Message struct { Content interface{} `json:"content"`; Usage struct { Input int64 `json:"input"`; Output int64 `json:"output"`; CacheRead int64 `json:"cacheRead"`; Cost struct { Total float64 `json:"total"` } `json:"cost"` } `json:"usage"` } `json:"message"` }
+			if err := json.Unmarshal(rawLine, &assistLine); err == nil {
+				u := assistLine.Message.Usage; currentTurn.InputTokens += u.Input; currentTurn.OutputTokens += u.Output; currentTurn.CacheReadTokens += u.CacheRead; currentTurn.Cost += u.Cost.Total
+				details.TotalTokens += (u.Input + u.Output); details.TotalCacheRead += u.CacheRead; details.TotalCost += u.Cost.Total
+				currentTurn.Timestamp = meta.Timestamp
+				if content, ok := assistLine.Message.Content.(string); ok { currentTurn.FinalText = content
+					think := extractThinkingFromTaggedText(content); if think != "" { reasoningBuilder.WriteString(think); currentTurn.FinalText = stripThinkingTagsFromText(content) }
+				} else if contentArr, ok := assistLine.Message.Content.([]interface{}); ok {
+					for _, part := range contentArr { if p, ok := part.(map[string]interface{}); ok { if p["type"] == "thinking" { if val, ok := p["thinking"].(string); ok { reasoningBuilder.WriteString(val) } } else if p["type"] == "text" { if val, ok := p["text"].(string); ok { currentTurn.FinalText += val } } } }
 				}
 			}
 		} else if (meta.Message.Role == "toolResult" || meta.Message.Role == "tool_result") && currentTurn != nil {
@@ -339,6 +339,13 @@ func extractThinkingFromTaggedText(text string) string {
 	return ""
 }
 
+func (dp *DataProvider) GetSubagentRetention() int {
+	configPath := filepath.Join(dp.BasePath, "openclaw.json"); data, err := os.ReadFile(configPath); if err != nil { return 60 }
+	var cfg struct { Agents struct { Defaults struct { Subagents struct { ArchiveAfterMinutes int `json:"archiveAfterMinutes"` } `json:"subagents"` } `json:"defaults"` } `json:"agents"` }
+	if err := json.Unmarshal(data, &cfg); err != nil { return 60 }; if cfg.Agents.Defaults.Subagents.ArchiveAfterMinutes == 0 { return 60 }
+	return cfg.Agents.Defaults.Subagents.ArchiveAfterMinutes
+}
+
 func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
 	externalSkills := make(map[string]bool); skills, _ := dp.GetSkills(); for _, s := range skills { externalSkills[s.Name] = true }
 	allCronJobs, _ := dp.GetCronJobs(); configPath := filepath.Join(dp.BasePath, "openclaw.json"); data, err := os.ReadFile(configPath); if err != nil { return nil, err }
@@ -348,12 +355,8 @@ func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
 	for idx, a := range cfg.Agents.List {
 		id := a.ID; if id == "" { continue }
 		workspace := dp.normalizeOpenClawPath(a.Workspace)
-		if workspace == "" {
-			if id == "main" { workspace = filepath.Join(dp.BasePath, "workspace")
-			} else { workspace = filepath.Join(dp.BasePath, "workspace-"+id) }
-		}
+		if workspace == "" { if id == "main" { workspace = filepath.Join(dp.BasePath, "workspace") } else { workspace = filepath.Join(dp.BasePath, "workspace-"+id) } }
 		sessionsDir := dp.normalizeOpenClawPath(filepath.Join(dp.BasePath, "agents", id, "sessions"))
-
 		name := a.Name; if name == "" { name = strings.Title(id) }
 		emoji := a.Identity.Emoji; if emoji == "" { emoji = dp.readEmojiFromIdentity(workspace) }
 		if emoji == "" { lid := strings.ToLower(id); if strings.Contains(lid, "coder") { emoji = "💻" } else if strings.Contains(lid, "research") { emoji = "🔍" } else if strings.Contains(lid, "schedule") { emoji = "📅" } else { emoji = "🧠" } }
@@ -438,7 +441,10 @@ func (dp *DataProvider) WatchTranscripts(broadcaster *Broadcaster) error {
 	watcher, err := fsnotify.NewWatcher(); if err != nil { return err }
 	personas, _ := dp.GetAgentPersonas()
 	for _, p := range personas { if _, err := os.Stat(p.Sessions); err == nil { _ = watcher.Add(p.Sessions) } }
-	go func() { defer watcher.Close(); for { select { case event, ok := <-watcher.Events: if !ok { return }; if (event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create) && filepath.Ext(event.Name) == ".jsonl" { dp.handleTranscriptChange(event.Name, broadcaster) } } } }()
+	go func() {
+		defer watcher.Close()
+		for { select { case event, ok := <-watcher.Events: if !ok { return }; if (event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create) && filepath.Ext(event.Name) == ".jsonl" { dp.handleTranscriptChange(event.Name, broadcaster) } } }
+	}()
 	return nil
 }
 
@@ -476,11 +482,9 @@ func (dp *DataProvider) GetGitLog() ([]GitCommit, error) {
 }
 
 func (dp *DataProvider) GetCronJobs() ([]CronJob, error) {
-	path := filepath.Join(dp.BasePath, "cron", "jobs.json"); data, err := os.ReadFile(path)
-	if err != nil { return []CronJob{}, nil }
+	path := filepath.Join(dp.BasePath, "cron", "jobs.json"); data, err := os.ReadFile(path); if err != nil { return []CronJob{}, nil }
 	var raw struct { Jobs []struct { ID string `json:"id"`; AgentID string `json:"agentId"`; Name string `json:"name"`; Desc string `json:"description"`; Enabled bool `json:"enabled"`; Schedule struct { Kind string `json:"kind"`; Expr string `json:"expr"` } `json:"schedule"`; State struct { NextRunAtMs int64 `json:"nextRunAtMs"` } `json:"state"` } `json:"jobs"` }
-	if err := json.Unmarshal(data, &raw); err != nil { return []CronJob{}, nil }
-	var jobs []CronJob; for _, j := range raw.Jobs { nextRun := ""; if j.State.NextRunAtMs > 0 { nextRun = time.Unix(j.State.NextRunAtMs/1000, 0).Format("2006-01-02 15:04") }; jobs = append(jobs, CronJob{ID: j.ID, AgentID: j.AgentID, Name: j.Name, Description: j.Desc, Enabled: j.Enabled, Schedule: j.Schedule.Kind + " " + j.Schedule.Expr, NextRun: nextRun}) }
+	if err := json.Unmarshal(data, &raw); err != nil { return []CronJob{}, nil }; var jobs []CronJob; for _, j := range raw.Jobs { nextRun := ""; if j.State.NextRunAtMs > 0 { nextRun = time.Unix(j.State.NextRunAtMs/1000, 0).Format("2006-01-02 15:04") }; jobs = append(jobs, CronJob{ID: j.ID, AgentID: j.AgentID, Name: j.Name, Description: j.Desc, Enabled: j.Enabled, Schedule: j.Schedule.Kind + " " + j.Schedule.Expr, NextRun: nextRun}) }
 	return jobs, nil
 }
 
@@ -502,7 +506,9 @@ func (dp *DataProvider) GetSkills() ([]Skill, error) {
 	if data, err := os.ReadFile(configPath); err == nil { var cfg struct { Skills struct { Load struct { ExtraDirs []string `json:"extraDirs"` } `json:"load"` } `json:"skills"` }; if err := json.Unmarshal(data, &cfg); err != nil { extraDirs = cfg.Skills.Load.ExtraDirs } }
 	managedPath := filepath.Join(dp.BasePath, "skills"); dp.scanSkillsDir(managedPath, &allSkills, seen)
 	for _, dir := range extraDirs { dp.scanSkillsDir(dp.normalizeOpenClawPath(dir), &allSkills, seen) }
-	personas, _ := dp.GetAgentPersonasInternal(); for _, p := range personas { workspaceSkills := filepath.Join(p.Workspace, "skills"); dp.scanSkillsDir(workspaceSkills, &allSkills, seen) }; return allSkills, nil
+	personas, _ := dp.GetAgentPersonasInternal()
+	for _, p := range personas { workspaceSkills := filepath.Join(p.Workspace, "skills"); dp.scanSkillsDir(workspaceSkills, &allSkills, seen) }
+	return allSkills, nil
 }
 
 func (dp *DataProvider) scanSkillsDir(dir string, skills *[]Skill, seen map[string]bool) {

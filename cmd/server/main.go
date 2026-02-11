@@ -32,9 +32,10 @@ type DashboardState struct {
 	DetailedUsage map[string]data.UsageBucket `json:"detailed_usage"`
 	SubAgents     []data.SubAgentRun           `json:"sub_agents"`
 	Personas      []data.AgentPersona          `json:"personas"`
-	Models        []data.Model                 `json:"models"`
-	Skills        []data.Skill                 `json:"skills"`
-	BasePath      string                       `json:"base_path"`
+	Models            []data.Model                 `json:"models"`
+	Skills            []data.Skill                 `json:"skills"`
+	SubagentRetention int                          `json:"subagent_retention"`
+	BasePath          string                       `json:"base_path"`
 }
 
 var startTime = time.Now()
@@ -130,6 +131,7 @@ func handleStatus(logger *slog.Logger, dp *data.DataProvider) http.HandlerFunc {
 		var personas []data.AgentPersona
 		var models []data.Model
 		var skills []data.Skill
+		var subagentRetention int
 		var basePath string
 
 		if dp != nil {
@@ -147,6 +149,7 @@ func handleStatus(logger *slog.Logger, dp *data.DataProvider) http.HandlerFunc {
 			personas, _ = dp.GetAgentPersonas()
 			models, _ = dp.GetModels()
 			skills, _ = dp.GetSkills()
+			subagentRetention = dp.GetSubagentRetention()
 			basePath = dp.BasePath
 		}
 
@@ -166,6 +169,7 @@ func handleStatus(logger *slog.Logger, dp *data.DataProvider) http.HandlerFunc {
 			Personas:      personas,
 			Models:        models,
 			Skills:        skills,
+			SubagentRetention: subagentRetention,
 			BasePath:      basePath,
 		}
 

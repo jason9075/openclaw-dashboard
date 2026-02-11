@@ -109,11 +109,13 @@ async function fetchAgents() {
 }
 
 let currentPersonas = [];
+let subagentRetention = 60;
 
 function renderAgents(data) {
     const listContainer = document.getElementById('full-agent-list');
     const personas = data.personas || [];
     currentPersonas = personas;
+    subagentRetention = data.subagent_retention || 60;
     const runs = data.sub_agents || [];
 
     if (personas.length === 0 && runs.length === 0) {
@@ -295,10 +297,13 @@ async function loadSessionDetailsInElement(agentId, sessionId, modalDiv, isAutoR
 
     try {
         const resp = await fetch(`/api/session/details?agentId=${agentId}&sessionId=${sessionId}`);
-        if (!resp.ok) throw new Error("Failed to load session details");
+        if (!resp.ok) {
+            const errorText = await resp.text();
+            throw new Error(errorText || `Server error: ${resp.status}`);
+        }
         const data = await resp.json();
         
-        renderConversationInElement(data.turns, conversationEl);
+        renderConversationInElement(data.turns, conversationEl, agentId);
 
         if (totalsEl) {
             totalsEl.innerHTML = `
@@ -308,25 +313,45 @@ async function loadSessionDetailsInElement(agentId, sessionId, modalDiv, isAutoR
             `;
         }
 
-        if (!isAutoRefresh || isNearBottom) {
-            setTimeout(() => { conversationEl.scrollTop = conversationEl.scrollHeight; }, 50);
+        if (!isAutoRefresh) {
+            setTimeout(() => { conversationEl.scrollTop = conversationEl.scrollHeight; }, 100);
+        } else if (isNearBottom) {
+            conversationEl.scrollTop = conversationEl.scrollHeight;
         }
     } catch (err) {
-        console.error(err);
+        console.error('Failed to load session details:', err);
+        if (!isAutoRefresh) {
+            conversationEl.innerHTML = `<div class="error-state">
+                <p>Failed to load conversation details.</p>
+                <small>${err.message}</small>
+            </div>`;
+        }
     }
 }
 
-function renderConversationInElement(turns, conversationEl) {
+function renderConversationInElement(turns, conversationEl, agentId) {
     if (!turns || turns.length === 0) {
         conversationEl.innerHTML = '<div class="empty-state">No messages in this session.</div>';
         return;
     }
 
-    conversationEl.innerHTML = turns.map((turn, idx) => {
+    const persona = currentPersonas.find(p => p.id === agentId);
+    const isSubagent = agentId !== 'manager';
+
+    let html = '';
+    if (isSubagent) {
+        html += `
+        <div class="retention-warning">
+            ⚠️ This is a sub-agent session. Transcripts will be auto-deleted ${subagentRetention} minutes after completion.
+        </div>
+        `;
+    }
+
+    html += turns.map((turn, idx) => {
         const timeStr = turn.timestamp ? new Date(turn.timestamp).toLocaleString() : '';
         const calledAgents = turn.agent_calls || [];
         const contextFiles = turn.context_files || [];
-        const contextTokensEst = Math.round(turn.context_chars / 4);
+        const contextTokensEst = turn.context_chars ? Math.round(turn.context_chars / 4) : 0;
         const isSystem = turn.user_source === 'system';
 
         return `
@@ -358,7 +383,11 @@ function renderConversationInElement(turns, conversationEl) {
             <div class="agent-calls-container">
                 <span class="label">📡 Dispatched Sub-agents:</span>
                 <div class="call-tags">
-                    ${calledAgents.map(a => `<button class="call-tag subagent" onclick="openDetailModal('${a.agent_id}', '${a.session_id}')">🚀 ${a.agent_id} (${a.session_id.substring(0,6)})</button>`).join('')}
+                    ${calledAgents.map(a => {
+                        const sid = (a.session_id || '');
+                        const displaySid = sid.length > 6 ? sid.substring(0, 6) : sid;
+                        return `<button class="call-tag subagent" onclick="openDetailModal('${a.agent_id}', '${sid}')">🚀 ${a.agent_id} (${displaySid})</button>`;
+                    }).join('')}
                 </div>
             </div>
             ` : ''}
@@ -372,14 +401,16 @@ function renderConversationInElement(turns, conversationEl) {
             </div>
             ${turn.input_tokens > 0 || turn.cost > 0 ? `
             <div class="turn-usage">
-                <span>Tokens: <strong>${(turn.input_tokens + turn.output_tokens).toLocaleString()}</strong> (In: ${turn.input_tokens.toLocaleString()}, Out: ${turn.output_tokens.toLocaleString()})</span>
+                <span>Tokens: <strong>${((turn.input_tokens || 0) + (turn.output_tokens || 0)).toLocaleString()}</strong> (In: ${(turn.input_tokens || 0).toLocaleString()}, Out: ${(turn.output_tokens || 0).toLocaleString()})</span>
                 ${turn.cache_read_tokens > 0 ? `<span>Cached: <strong>${turn.cache_read_tokens.toLocaleString()}</strong></span>` : ''}
-                <span>Cost: <strong>$${turn.cost.toFixed(4)}</strong></span>
+                <span>Cost: <strong>$${(turn.cost || 0).toFixed(4)}</strong></span>
             </div>
             ` : ''}
         </div>
         `;
     }).join('<hr class="turn-divider">');
+
+    conversationEl.innerHTML = html;
 }
 
 function closeSpecificModal(modalId) {
