@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -75,7 +76,7 @@ func main() {
 	mux.HandleFunc("/agents", handleAgents(uiFS))
 	mux.HandleFunc("/api/status", handleStatus(logger, dp))
 	mux.HandleFunc("/api/events", handleEvents(broadcaster))
-	mux.HandleFunc("/api/hooks/receive", handleHookReceive(logger, broadcaster))
+	mux.HandleFunc("/api/hooks/receive", handleHookReceive(logger, broadcaster, dp))
 	mux.HandleFunc("/api/session/list", handleSessionList(logger, dp))
 	mux.HandleFunc("/api/session/details", handleSessionDetails(logger, dp))
 
@@ -213,14 +214,18 @@ func handleEvents(b *data.Broadcaster) http.HandlerFunc {
 	}
 }
 
-func handleHookReceive(logger *slog.Logger, b *data.Broadcaster) http.HandlerFunc {
+func handleHookReceive(logger *slog.Logger, b *data.Broadcaster, dp *data.DataProvider) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		var payload interface{}
+		var payload struct {
+			Event      string `json:"event"`
+			SessionKey string `json:"sessionKey"`
+			Action     string `json:"action"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			logger.Warn("failed to decode hook payload", "error", err)
 			http.Error(w, "Bad request", http.StatusBadRequest)
@@ -228,6 +233,17 @@ func handleHookReceive(logger *slog.Logger, b *data.Broadcaster) http.HandlerFun
 		}
 
 		logger.Info("hook received", "payload", payload)
+
+		// If event is command, mark the agent as thinking
+		if (payload.Event == "command" || payload.Event == "tool_use") && payload.SessionKey != "" {
+			parts := strings.Split(payload.SessionKey, ":")
+			if len(parts) > 0 {
+				agentID := parts[0]
+				if dp != nil {
+					dp.MarkAgentActive(agentID, "thinking")
+				}
+			}
+		}
 
 		// Broadcast a refresh event to all frontend clients
 		b.Broadcast(data.Event{

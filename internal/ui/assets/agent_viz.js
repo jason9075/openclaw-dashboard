@@ -25,9 +25,19 @@ function setupSSE() {
     eventSource.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
+            console.log('SSE Event received:', data.type, data.payload);
             if (data.type === 'refresh') {
-                console.log('Real-time refresh triggered by hook:', data.payload);
                 fetchAgents();
+                // If modal is open for this agent, reload it too
+                const modal = document.getElementById('detail-modal');
+                if (modal && modal.style.display === 'flex') {
+                    const currentAgentId = modal.dataset.agentId;
+                    const sessionSelect = document.getElementById('modal-session-select');
+                    // Only auto-reload if we are on the LATEST session
+                    if (sessionSelect && sessionSelect.selectedIndex === 0) {
+                        loadSessionDetails(currentAgentId, sessionSelect.value, true);
+                    }
+                }
             } else if (data.type === 'skill_use') {
                 showSkillHint(data.payload);
             } else if (data.type === 'agent_status') {
@@ -137,10 +147,16 @@ function renderAgents(data) {
         return;
     }
 
-    // Sort Personas: Thinking first
+    // Sort Personas: Thinking first, then by LastActive (descending), then by ID
     personas.sort((a, b) => {
         if (a.status === 'thinking' && b.status !== 'thinking') return -1;
         if (a.status !== 'thinking' && b.status === 'thinking') return 1;
+        
+        // Both same status (e.g. both idle), sort by LastActive
+        if (a.last_active !== b.last_active) {
+            return b.last_active - a.last_active;
+        }
+        
         return a.id.localeCompare(b.id);
     });
 
@@ -247,7 +263,7 @@ async function openDetailModal(agentId) {
         if (!listResp.ok) throw new Error("Failed to load session list");
         const sessions = await listResp.json();
         
-        if (sessions.length === 0) {
+        if (!sessions || sessions.length === 0) {
             conversationEl.innerHTML = '<div class="empty-state">No sessions found for this agent.</div>';
             return;
         }
@@ -264,20 +280,29 @@ async function openDetailModal(agentId) {
             select.appendChild(opt);
         });
 
-        select.onchange = () => loadSessionDetails(agentId, select.value);
+        select.onchange = () => loadSessionDetails(agentId, select.value, false);
 
         // 2. Load latest session details
-        await loadSessionDetails(agentId, sessions[0].id);
+        await loadSessionDetails(agentId, sessions[0].id, false);
 
     } catch (err) {
         console.error(err);
-        conversationEl.innerHTML = `<div class="error">Error: ${err.message}</div>`;
+        conversationEl.innerHTML = `<div class="empty-state">No sessions found or error loading data.</div>`;
     }
 }
 
-async function loadSessionDetails(agentId, sessionId) {
+async function loadSessionDetails(agentId, sessionId, isAutoRefresh = false) {
     const conversationEl = document.getElementById('modal-conversation');
-    conversationEl.innerHTML = '<div class="loading">Loading conversation...</div>';
+    if (!conversationEl) return;
+
+    let isNearBottom = false;
+    if (isAutoRefresh) {
+        isNearBottom = conversationEl.scrollHeight - conversationEl.scrollTop - conversationEl.clientHeight < 100;
+    }
+
+    if (!isAutoRefresh) {
+        conversationEl.innerHTML = '<div class="loading">Loading conversation...</div>';
+    }
 
     try {
         const resp = await fetch(`/api/session/details?agentId=${agentId}&sessionId=${sessionId}`);
@@ -285,9 +310,21 @@ async function loadSessionDetails(agentId, sessionId) {
         const data = await resp.json();
         
         renderConversation(data.turns);
+
+        if (!isAutoRefresh) {
+            // Initial load: always scroll to bottom
+            setTimeout(() => {
+                conversationEl.scrollTop = conversationEl.scrollHeight;
+            }, 50);
+        } else if (isNearBottom) {
+            // Auto-refresh: only scroll if was already at bottom
+            conversationEl.scrollTop = conversationEl.scrollHeight;
+        }
     } catch (err) {
         console.error(err);
-        conversationEl.innerHTML = `<div class="error">Error: ${err.message}</div>`;
+        if (!isAutoRefresh) {
+            conversationEl.innerHTML = `<div class="error">Error: ${err.message}</div>`;
+        }
     }
 }
 
@@ -295,7 +332,7 @@ function renderConversation(turns) {
     const conversationEl = document.getElementById('modal-conversation');
     
     if (!turns || turns.length === 0) {
-        conversationEl.innerHTML = '<div class="empty-state">Empty conversation.</div>';
+        conversationEl.innerHTML = '<div class="empty-state">No messages in this session.</div>';
         return;
     }
 
@@ -329,13 +366,17 @@ function updateLiveReasoning(payload) {
     const { agent_id, delta } = payload;
     const modal = document.getElementById('detail-modal');
     if (modal && modal.style.display === 'flex' && modal.dataset.agentId === agent_id) {
+        const conversationEl = document.getElementById('modal-conversation');
+        if (!conversationEl) return;
+
+        // Sticky scroll check
+        const isNearBottom = conversationEl.scrollHeight - conversationEl.scrollTop - conversationEl.clientHeight < 50;
+
         // Find the LATEST reasoning box in the modal
         const reasoningBoxes = document.querySelectorAll('.message-box.reasoning');
         let latestReasoning = reasoningBoxes[reasoningBoxes.length - 1];
         
         if (!latestReasoning) {
-            // If no reasoning box exists, we might need to create one for the active turn
-            // For now, let's just append to the very last element of the conversation
             const turns = document.querySelectorAll('.conversation-turn');
             const lastTurn = turns[turns.length - 1];
             if (lastTurn) {
@@ -349,7 +390,9 @@ function updateLiveReasoning(payload) {
 
         if (latestReasoning) {
             latestReasoning.textContent += delta;
-            latestReasoning.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            if (isNearBottom) {
+                conversationEl.scrollTop = conversationEl.scrollHeight;
+            }
         }
     }
 }

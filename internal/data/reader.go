@@ -101,15 +101,16 @@ type Skill struct {
 
 // AgentPersona represents a long-lived agent configuration
 type AgentPersona struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Emoji     string   `json:"emoji"`
-	Workspace string   `json:"workspace"`
-	AgentDir  string   `json:"agent_dir"`
-	Sessions  string   `json:"sessions_dir"`
-	IsDefault bool     `json:"is_default"`
-	Skills    []string `json:"skills"` // Only non-built-in skills
-	Status    string   `json:"status"` // "idle", "thinking"
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Emoji      string   `json:"emoji"`
+	Workspace  string   `json:"workspace"`
+	AgentDir   string   `json:"agent_dir"`
+	Sessions   string   `json:"sessions_dir"`
+	IsDefault  bool     `json:"is_default"`
+	Skills     []string `json:"skills"` // Only non-built-in skills
+	Status     string   `json:"status"` // "idle", "thinking"
+	LastActive int64    `json:"last_active"`
 }
 
 type ConversationTurn struct {
@@ -148,12 +149,14 @@ func NewDataProvider() (*DataProvider, error) {
 	}
 
 	if basePath == "" {
+		// Priority search list for state directory
 		candidates := []string{
 			".openclaw",
 			"/home/jason9075/.openclaw",
 			"/home/clawbot/.openclaw",
 		}
 
+		// Search all /home/* directories
 		entries, err := os.ReadDir("/home")
 		if err == nil {
 			for _, e := range entries {
@@ -163,6 +166,7 @@ func NewDataProvider() (*DataProvider, error) {
 			}
 		}
 
+		// Find first existing that contains openclaw.json or subagents.json
 		for _, c := range candidates {
 			if _, err := os.Stat(filepath.Join(c, "openclaw.json")); err == nil {
 				basePath = c
@@ -174,6 +178,7 @@ func NewDataProvider() (*DataProvider, error) {
 			}
 		}
 
+		// Fallback to current user home
 		if basePath == "" {
 			if home, err := os.UserHomeDir(); err == nil {
 				basePath = filepath.Join(home, ".openclaw")
@@ -181,6 +186,7 @@ func NewDataProvider() (*DataProvider, error) {
 		}
 	}
 
+	// Ensure directory exists
 	if _, err := os.Stat(basePath); os.IsNotExist(err) {
 		_ = os.MkdirAll(basePath, 0755)
 	}
@@ -195,6 +201,7 @@ func NewDataProvider() (*DataProvider, error) {
 
 	fmt.Fprintf(os.Stderr, "DataProvider initialized with BasePath: %s\n", basePath)
 
+	// Build initial session map
 	dp.RefreshSessionMap()
 
 	return dp, nil
@@ -212,6 +219,8 @@ func (dp *DataProvider) expandPath(p string) string {
 
 func (dp *DataProvider) normalizeOpenClawPath(p string) string {
 	p = dp.expandPath(p)
+
+	// If path contains .openclaw, try to align it with our current BasePath
 	if strings.Contains(p, ".openclaw") {
 		parts := strings.SplitN(p, ".openclaw", 2)
 		if len(parts) == 2 {
@@ -228,8 +237,10 @@ func (dp *DataProvider) RefreshSessionMap() {
 	dp.mu.Lock()
 	defer dp.mu.Unlock()
 
+	// Clear current map
 	dp.sessionToAgent = make(map[string]string)
 
+	// Walk agents/*/sessions/
 	agentsDir := filepath.Join(dp.BasePath, "agents")
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
@@ -259,6 +270,8 @@ func (dp *DataProvider) RefreshSessionMap() {
 
 func (dp *DataProvider) WatchRawStream(broadcaster *Broadcaster) {
 	logPath := filepath.Join(dp.BasePath, "logs", "raw-stream.jsonl")
+	
+	// Create logs dir if not exists
 	os.MkdirAll(filepath.Dir(logPath), 0755)
 
 	watcher, err := fsnotify.NewWatcher()
@@ -267,8 +280,10 @@ func (dp *DataProvider) WatchRawStream(broadcaster *Broadcaster) {
 		return
 	}
 
+	// Watch the logs directory
 	watcher.Add(filepath.Dir(logPath))
 
+	// Ticker to reset idle status
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
 		for range ticker.C {
@@ -277,7 +292,7 @@ func (dp *DataProvider) WatchRawStream(broadcaster *Broadcaster) {
 			for agentID, last := range dp.lastUpdate {
 				if dp.agentStatus[agentID] == "thinking" && now.Sub(last) > 3*time.Second {
 					dp.agentStatus[agentID] = "idle"
-					dp.agentReasoning[agentID] = ""
+					dp.agentReasoning[agentID] = "" // Clear reasoning on idle
 					broadcaster.Broadcast(Event{
 						Type: "agent_status",
 						Payload: map[string]string{
@@ -293,6 +308,7 @@ func (dp *DataProvider) WatchRawStream(broadcaster *Broadcaster) {
 
 	go func() {
 		defer watcher.Close()
+		
 		var lastSize int64
 		if info, err := os.Stat(logPath); err == nil {
 			lastSize = info.Size()
@@ -309,10 +325,12 @@ func (dp *DataProvider) WatchRawStream(broadcaster *Broadcaster) {
 					if err != nil {
 						continue
 					}
+					
 					if info.Size() > lastSize {
 						dp.processRawStreamNewData(logPath, lastSize, broadcaster)
 						lastSize = info.Size()
 					} else if info.Size() < lastSize {
+						// File truncated
 						lastSize = info.Size()
 					}
 				}
@@ -356,6 +374,7 @@ func (dp *DataProvider) processRawStreamNewData(path string, offset int64, broad
 		dp.mu.RUnlock()
 
 		if !ok {
+			// Try refreshing map if session unknown
 			dp.RefreshSessionMap()
 			dp.mu.RLock()
 			agentID = dp.sessionToAgent[entry.SessionID]
@@ -369,6 +388,8 @@ func (dp *DataProvider) processRawStreamNewData(path string, offset int64, broad
 			
 			if entry.Delta != "" {
 				dp.agentReasoning[agentID] += entry.Delta
+				
+				// Broadcast reasoning delta
 				broadcaster.Broadcast(Event{
 					Type: "reasoning_delta",
 					Payload: map[string]string{
@@ -379,6 +400,7 @@ func (dp *DataProvider) processRawStreamNewData(path string, offset int64, broad
 			}
 			dp.mu.Unlock()
 
+			// Broadcast status
 			broadcaster.Broadcast(Event{
 				Type: "agent_status",
 				Payload: map[string]string{
@@ -394,6 +416,9 @@ func (dp *DataProvider) GetSessionsForAgent(agentID string) ([]SessionInfo, erro
 	sessionsDir := filepath.Join(dp.BasePath, "agents", agentID, "sessions")
 	entries, err := os.ReadDir(sessionsDir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return []SessionInfo{}, nil
+		}
 		return nil, err
 	}
 
@@ -410,6 +435,7 @@ func (dp *DataProvider) GetSessionsForAgent(agentID string) ([]SessionInfo, erro
 			})
 		}
 	}
+
 	return sessions, nil
 }
 
@@ -436,6 +462,13 @@ func (dp *DataProvider) GetSessionDetails(agentID string, sessionID string) (*Se
 			Message struct {
 				Role    string      `json:"role"`
 				Content interface{} `json:"content"`
+				Usage   struct {
+					Input  int64 `json:"input"`
+					Output int64 `json:"output"`
+					Cost   struct {
+						Total float64 `json:"total"`
+					} `json:"cost"`
+				} `json:"usage"`
 			} `json:"message"`
 		}
 		if err := json.Unmarshal(scanner.Bytes(), &line); err != nil {
@@ -443,6 +476,7 @@ func (dp *DataProvider) GetSessionDetails(agentID string, sessionID string) (*Se
 		}
 
 		if line.Message.Role == "user" {
+			// Start a new turn
 			if currentTurn != nil {
 				currentTurn.Reasoning = reasoningBuilder.String()
 				details.Turns = append(details.Turns, *currentTurn)
@@ -462,21 +496,9 @@ func (dp *DataProvider) GetSessionDetails(agentID string, sessionID string) (*Se
 				}
 			}
 		} else if line.Message.Role == "assistant" && currentTurn != nil {
-			// Extract usage
-			var usage struct {
-				Usage struct {
-					Input  int64 `json:"input"`
-					Output int64 `json:"output"`
-					Cost   struct {
-						Total float64 `json:"total"`
-					} `json:"cost"`
-				} `json:"usage"`
-			}
-			if err := json.Unmarshal(scanner.Bytes(), &usage); err == nil {
-				currentTurn.InputTokens += usage.Usage.Input
-				currentTurn.OutputTokens += usage.Usage.Output
-				currentTurn.Cost += usage.Usage.Cost.Total
-			}
+			currentTurn.InputTokens += line.Message.Usage.Input
+			currentTurn.OutputTokens += line.Message.Usage.Output
+			currentTurn.Cost += line.Message.Usage.Cost.Total
 
 			if content, ok := line.Message.Content.(string); ok {
 				currentTurn.FinalText = content
@@ -499,13 +521,16 @@ func (dp *DataProvider) GetSessionDetails(agentID string, sessionID string) (*Se
 		}
 	}
 
+	// Add last turn
 	if currentTurn != nil {
 		currentTurn.Reasoning = reasoningBuilder.String()
+		
 		dp.mu.RLock()
 		if dp.agentStatus[agentID] == "thinking" && dp.agentReasoning[agentID] != "" {
 			currentTurn.Reasoning = dp.agentReasoning[agentID]
 		}
 		dp.mu.RUnlock()
+		
 		details.Turns = append(details.Turns, *currentTurn)
 	}
 
@@ -534,6 +559,7 @@ func extractThinkingFromTaggedText(text string) string {
 }
 
 func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
+	// 1. Load external skills first to use for filtering
 	externalSkills := make(map[string]bool)
 	skills, _ := dp.GetSkills()
 	for _, s := range skills {
@@ -543,6 +569,12 @@ func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
 	configPath := filepath.Join(dp.BasePath, "openclaw.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
+		dp.mu.RLock()
+		status := dp.agentStatus["main"]
+		lastActive := dp.lastUpdate["main"].Unix()
+		dp.mu.RUnlock()
+		if status == "" { status = "idle" }
+
 		return []AgentPersona{{
 			ID:        "main",
 			Name:      "Main Agent",
@@ -552,7 +584,8 @@ func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
 			Sessions:  filepath.Join(dp.BasePath, "agents", "main", "sessions"),
 			IsDefault: true,
 			Skills:    dp.getSkillNames(externalSkills),
-			Status:    "idle",
+			Status:    status,
+			LastActive: lastActive,
 		}}, nil
 	}
 
@@ -621,6 +654,7 @@ func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
 			}
 		}
 
+		// Filter skills: only keep non-built-in ones
 		var filteredSkills []string
 		if a.Skills != nil {
 			for _, s := range a.Skills {
@@ -637,6 +671,7 @@ func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
 		if status == "" {
 			status = "idle"
 		}
+		lastActive := dp.lastUpdate[id].Unix()
 		dp.mu.RUnlock()
 
 		personas = append(personas, AgentPersona{
@@ -649,6 +684,7 @@ func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
 			IsDefault: a.Default || (id == "main" && len(cfg.Agents.List) == 1),
 			Skills:    filteredSkills,
 			Status:    status,
+			LastActive: lastActive,
 		})
 	}
 
@@ -658,6 +694,7 @@ func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
 		if status == "" {
 			status = "idle"
 		}
+		lastActive := dp.lastUpdate["main"].Unix()
 		dp.mu.RUnlock()
 
 		personas = append(personas, AgentPersona{
@@ -670,6 +707,7 @@ func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
 			IsDefault: true,
 			Skills:    dp.getSkillNames(externalSkills),
 			Status:    status,
+			LastActive: lastActive,
 		})
 	}
 
@@ -795,12 +833,19 @@ func (dp *DataProvider) WatchTranscripts(broadcaster *Broadcaster) error {
 	if err != nil {
 		return err
 	}
+	
 	personas, _ := dp.GetAgentPersonas()
+	fmt.Fprintf(os.Stderr, "Watching transcripts for %d personas\n", len(personas))
+	
 	for _, p := range personas {
 		if _, err := os.Stat(p.Sessions); err == nil {
+			fmt.Fprintf(os.Stderr, "Adding watcher for: %s\n", p.Sessions)
 			watcher.Add(p.Sessions)
+		} else {
+			fmt.Fprintf(os.Stderr, "Sessions dir not found: %s\n", p.Sessions)
 		}
 	}
+
 	go func() {
 		defer watcher.Close()
 		for {
@@ -809,7 +854,14 @@ func (dp *DataProvider) WatchTranscripts(broadcaster *Broadcaster) error {
 				if !ok {
 					return
 				}
+				// fmt.Fprintf(os.Stderr, "FS Event: %v\n", event)
 				if event.Op&fsnotify.Write == fsnotify.Write {
+					if filepath.Ext(event.Name) == ".jsonl" {
+						dp.handleTranscriptChange(event.Name, broadcaster)
+					}
+				}
+				if event.Op&fsnotify.Create == fsnotify.Create {
+					// Handle new session files
 					if filepath.Ext(event.Name) == ".jsonl" {
 						dp.handleTranscriptChange(event.Name, broadcaster)
 					}
@@ -822,7 +874,15 @@ func (dp *DataProvider) WatchTranscripts(broadcaster *Broadcaster) error {
 			}
 		}
 	}()
+
 	return nil
+}
+
+func (dp *DataProvider) MarkAgentActive(agentID string, status string) {
+	dp.mu.Lock()
+	defer dp.mu.Unlock()
+	dp.agentStatus[agentID] = status
+	dp.lastUpdate[agentID] = time.Now()
 }
 
 func (dp *DataProvider) handleTranscriptChange(path string, broadcaster *Broadcaster) {
@@ -863,6 +923,21 @@ func (dp *DataProvider) handleTranscriptChange(path string, broadcaster *Broadca
 		return
 	}
 	agentID := filepath.Base(filepath.Dir(filepath.Dir(path)))
+
+	// Mark agent as thinking on any transcript write
+	dp.mu.Lock()
+	dp.agentStatus[agentID] = "thinking"
+	dp.lastUpdate[agentID] = time.Now()
+	dp.mu.Unlock()
+
+	broadcaster.Broadcast(Event{
+		Type: "agent_status",
+		Payload: map[string]string{
+			"agent_id": agentID,
+			"status":   "thinking",
+		},
+	})
+
 	for _, c := range entry.Message.Content {
 		if c.Type == "tool_use" || c.Type == "tool_call" {
 			broadcaster.Broadcast(Event{
