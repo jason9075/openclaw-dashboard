@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -108,10 +109,36 @@ type AgentPersona struct {
 	Sessions  string   `json:"sessions_dir"`
 	IsDefault bool     `json:"is_default"`
 	Skills    []string `json:"skills"` // Only non-built-in skills
+	Status    string   `json:"status"` // "idle", "thinking"
+}
+
+type ConversationTurn struct {
+	UserMessage  string  `json:"user_message"`
+	Reasoning    string  `json:"reasoning"`
+	FinalText    string  `json:"final_text"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	Cost         float64 `json:"cost"`
+}
+
+type SessionDetails struct {
+	AgentID   string             `json:"agent_id"`
+	SessionID string             `json:"session_id"`
+	Turns     []ConversationTurn `json:"turns"`
+}
+
+type SessionInfo struct {
+	ID        string    `json:"id"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type DataProvider struct {
-	BasePath string
+	BasePath       string
+	sessionToAgent map[string]string
+	agentStatus    map[string]string
+	agentReasoning map[string]string
+	lastUpdate     map[string]time.Time
+	mu             sync.RWMutex
 }
 
 func NewDataProvider() (*DataProvider, error) {
@@ -158,9 +185,19 @@ func NewDataProvider() (*DataProvider, error) {
 		_ = os.MkdirAll(basePath, 0755)
 	}
 
+	dp := &DataProvider{
+		BasePath:       basePath,
+		sessionToAgent: make(map[string]string),
+		agentStatus:    make(map[string]string),
+		agentReasoning: make(map[string]string),
+		lastUpdate:     make(map[string]time.Time),
+	}
+
 	fmt.Fprintf(os.Stderr, "DataProvider initialized with BasePath: %s\n", basePath)
 
-	return &DataProvider{BasePath: basePath}, nil
+	dp.RefreshSessionMap()
+
+	return dp, nil
 }
 
 func (dp *DataProvider) expandPath(p string) string {
@@ -187,8 +224,316 @@ func (dp *DataProvider) normalizeOpenClawPath(p string) string {
 	return p
 }
 
+func (dp *DataProvider) RefreshSessionMap() {
+	dp.mu.Lock()
+	defer dp.mu.Unlock()
+
+	dp.sessionToAgent = make(map[string]string)
+
+	agentsDir := filepath.Join(dp.BasePath, "agents")
+	entries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		return
+	}
+
+	for _, agentEntry := range entries {
+		if !agentEntry.IsDir() {
+			continue
+		}
+		agentID := agentEntry.Name()
+		sessionsDir := filepath.Join(agentsDir, agentID, "sessions")
+		
+		sessions, err := os.ReadDir(sessionsDir)
+		if err != nil {
+			continue
+		}
+
+		for _, s := range sessions {
+			if !s.IsDir() && filepath.Ext(s.Name()) == ".jsonl" {
+				sessionID := strings.TrimSuffix(s.Name(), ".jsonl")
+				dp.sessionToAgent[sessionID] = agentID
+			}
+		}
+	}
+}
+
+func (dp *DataProvider) WatchRawStream(broadcaster *Broadcaster) {
+	logPath := filepath.Join(dp.BasePath, "logs", "raw-stream.jsonl")
+	os.MkdirAll(filepath.Dir(logPath), 0755)
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create raw stream watcher: %v\n", err)
+		return
+	}
+
+	watcher.Add(filepath.Dir(logPath))
+
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		for range ticker.C {
+			dp.mu.Lock()
+			now := time.Now()
+			for agentID, last := range dp.lastUpdate {
+				if dp.agentStatus[agentID] == "thinking" && now.Sub(last) > 3*time.Second {
+					dp.agentStatus[agentID] = "idle"
+					dp.agentReasoning[agentID] = ""
+					broadcaster.Broadcast(Event{
+						Type: "agent_status",
+						Payload: map[string]string{
+							"agent_id": agentID,
+							"status":   "idle",
+						},
+					})
+				}
+			}
+			dp.mu.Unlock()
+		}
+	}()
+
+	go func() {
+		defer watcher.Close()
+		var lastSize int64
+		if info, err := os.Stat(logPath); err == nil {
+			lastSize = info.Size()
+		}
+
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				if event.Name == logPath && (event.Op&fsnotify.Write == fsnotify.Write) {
+					info, err := os.Stat(logPath)
+					if err != nil {
+						continue
+					}
+					if info.Size() > lastSize {
+						dp.processRawStreamNewData(logPath, lastSize, broadcaster)
+						lastSize = info.Size()
+					} else if info.Size() < lastSize {
+						lastSize = info.Size()
+					}
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				fmt.Fprintf(os.Stderr, "raw stream watcher error: %v\n", err)
+			}
+		}
+	}()
+}
+
+func (dp *DataProvider) processRawStreamNewData(path string, offset int64, broadcaster *Broadcaster) {
+	file, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	file.Seek(offset, 0)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		var entry struct {
+			Event     string `json:"event"`
+			SessionID string `json:"sessionId"`
+			Delta     string `json:"delta"`
+			Content   string `json:"content"`
+		}
+		if err := json.Unmarshal(line, &entry); err != nil {
+			continue
+		}
+
+		if entry.SessionID == "" {
+			continue
+		}
+
+		dp.mu.RLock()
+		agentID, ok := dp.sessionToAgent[entry.SessionID]
+		dp.mu.RUnlock()
+
+		if !ok {
+			dp.RefreshSessionMap()
+			dp.mu.RLock()
+			agentID = dp.sessionToAgent[entry.SessionID]
+			dp.mu.RUnlock()
+		}
+
+		if agentID != "" {
+			dp.mu.Lock()
+			dp.agentStatus[agentID] = "thinking"
+			dp.lastUpdate[agentID] = time.Now()
+			
+			if entry.Delta != "" {
+				dp.agentReasoning[agentID] += entry.Delta
+				broadcaster.Broadcast(Event{
+					Type: "reasoning_delta",
+					Payload: map[string]string{
+						"agent_id": agentID,
+						"delta":    entry.Delta,
+					},
+				})
+			}
+			dp.mu.Unlock()
+
+			broadcaster.Broadcast(Event{
+				Type: "agent_status",
+				Payload: map[string]string{
+					"agent_id": agentID,
+					"status":   "thinking",
+				},
+			})
+		}
+	}
+}
+
+func (dp *DataProvider) GetSessionsForAgent(agentID string) ([]SessionInfo, error) {
+	sessionsDir := filepath.Join(dp.BasePath, "agents", agentID, "sessions")
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var sessions []SessionInfo
+	for _, e := range entries {
+		if !e.IsDir() && filepath.Ext(e.Name()) == ".jsonl" {
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			sessions = append(sessions, SessionInfo{
+				ID:        strings.TrimSuffix(e.Name(), ".jsonl"),
+				UpdatedAt: info.ModTime(),
+			})
+		}
+	}
+	return sessions, nil
+}
+
+func (dp *DataProvider) GetSessionDetails(agentID string, sessionID string) (*SessionDetails, error) {
+	sessionFile := filepath.Join(dp.BasePath, "agents", agentID, "sessions", sessionID+".jsonl")
+	file, err := os.Open(sessionFile)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	details := &SessionDetails{
+		AgentID:   agentID,
+		SessionID: sessionID,
+		Turns:     []ConversationTurn{},
+	}
+
+	scanner := bufio.NewScanner(file)
+	var currentTurn *ConversationTurn
+	var reasoningBuilder strings.Builder
+
+	for scanner.Scan() {
+		var line struct {
+			Message struct {
+				Role    string      `json:"role"`
+				Content interface{} `json:"content"`
+			} `json:"message"`
+		}
+		if err := json.Unmarshal(scanner.Bytes(), &line); err != nil {
+			continue
+		}
+
+		if line.Message.Role == "user" {
+			if currentTurn != nil {
+				currentTurn.Reasoning = reasoningBuilder.String()
+				details.Turns = append(details.Turns, *currentTurn)
+				reasoningBuilder.Reset()
+			}
+			currentTurn = &ConversationTurn{}
+
+			if content, ok := line.Message.Content.(string); ok {
+				currentTurn.UserMessage = content
+			} else if contentArr, ok := line.Message.Content.([]interface{}); ok {
+				for _, part := range contentArr {
+					if p, ok := part.(map[string]interface{}); ok {
+						if p["type"] == "text" {
+							currentTurn.UserMessage = p["text"].(string)
+						}
+					}
+				}
+			}
+		} else if line.Message.Role == "assistant" && currentTurn != nil {
+			// Extract usage
+			var usage struct {
+				Usage struct {
+					Input  int64 `json:"input"`
+					Output int64 `json:"output"`
+					Cost   struct {
+						Total float64 `json:"total"`
+					} `json:"cost"`
+				} `json:"usage"`
+			}
+			if err := json.Unmarshal(scanner.Bytes(), &usage); err == nil {
+				currentTurn.InputTokens += usage.Usage.Input
+				currentTurn.OutputTokens += usage.Usage.Output
+				currentTurn.Cost += usage.Usage.Cost.Total
+			}
+
+			if content, ok := line.Message.Content.(string); ok {
+				currentTurn.FinalText = content
+				think := extractThinkingFromTaggedText(content)
+				if think != "" {
+					reasoningBuilder.WriteString(think)
+					currentTurn.FinalText = stripThinkingTagsFromText(content)
+				}
+			} else if contentArr, ok := line.Message.Content.([]interface{}); ok {
+				for _, part := range contentArr {
+					if p, ok := part.(map[string]interface{}); ok {
+						if p["type"] == "thinking" {
+							reasoningBuilder.WriteString(p["thinking"].(string))
+						} else if p["type"] == "text" {
+							currentTurn.FinalText += p["text"].(string)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if currentTurn != nil {
+		currentTurn.Reasoning = reasoningBuilder.String()
+		dp.mu.RLock()
+		if dp.agentStatus[agentID] == "thinking" && dp.agentReasoning[agentID] != "" {
+			currentTurn.Reasoning = dp.agentReasoning[agentID]
+		}
+		dp.mu.RUnlock()
+		details.Turns = append(details.Turns, *currentTurn)
+	}
+
+	return details, nil
+}
+
+func stripThinkingTagsFromText(text string) string {
+	re := []string{"<think>", "</think>", "<thinking>", "</thinking>", "<thought>", "</thought>"}
+	res := text
+	for _, r := range re {
+		res = strings.ReplaceAll(res, r, "")
+	}
+	return strings.TrimSpace(res)
+}
+
+func extractThinkingFromTaggedText(text string) string {
+	tags := [][]string{{"<think>", "</think>"}, {"<thinking>", "</thinking>"}, {"<thought>", "</thought>"}}
+	for _, t := range tags {
+		start := strings.Index(text, t[0])
+		end := strings.Index(text, t[1])
+		if start != -1 && end != -1 && end > start {
+			return text[start+len(t[0]) : end]
+		}
+	}
+	return ""
+}
+
 func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
-	// 1. Load external skills first to use for filtering
 	externalSkills := make(map[string]bool)
 	skills, _ := dp.GetSkills()
 	for _, s := range skills {
@@ -207,6 +552,7 @@ func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
 			Sessions:  filepath.Join(dp.BasePath, "agents", "main", "sessions"),
 			IsDefault: true,
 			Skills:    dp.getSkillNames(externalSkills),
+			Status:    "idle",
 		}}, nil
 	}
 
@@ -275,7 +621,6 @@ func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
 			}
 		}
 
-		// Filter skills: only keep non-built-in ones
 		var filteredSkills []string
 		if a.Skills != nil {
 			for _, s := range a.Skills {
@@ -287,6 +632,13 @@ func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
 			filteredSkills = dp.getSkillNames(externalSkills)
 		}
 
+		dp.mu.RLock()
+		status := dp.agentStatus[id]
+		if status == "" {
+			status = "idle"
+		}
+		dp.mu.RUnlock()
+
 		personas = append(personas, AgentPersona{
 			ID:        id,
 			Name:      name,
@@ -296,10 +648,18 @@ func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
 			Sessions:  sessionsDir,
 			IsDefault: a.Default || (id == "main" && len(cfg.Agents.List) == 1),
 			Skills:    filteredSkills,
+			Status:    status,
 		})
 	}
 
 	if len(personas) == 0 {
+		dp.mu.RLock()
+		status := dp.agentStatus["main"]
+		if status == "" {
+			status = "idle"
+		}
+		dp.mu.RUnlock()
+
 		personas = append(personas, AgentPersona{
 			ID:        "main",
 			Name:      "Main Agent",
@@ -309,13 +669,13 @@ func (dp *DataProvider) GetAgentPersonas() ([]AgentPersona, error) {
 			Sessions:  filepath.Join(dp.BasePath, "agents", "main", "sessions"),
 			IsDefault: true,
 			Skills:    dp.getSkillNames(externalSkills),
+			Status:    status,
 		})
 	}
 
 	return personas, nil
 }
 
-// Helper for GetSkills to avoid recursion
 func (dp *DataProvider) GetAgentPersonasInternal() ([]AgentPersona, error) {
 	configPath := filepath.Join(dp.BasePath, "openclaw.json")
 	data, err := os.ReadFile(configPath)
@@ -649,7 +1009,7 @@ func (dp *DataProvider) GetModels() ([]Model, error) {
 	path := filepath.Join(dp.BasePath, "models.json")
 	if data, err := os.ReadFile(path); err == nil {
 		var models []Model
-		if err := json.Unmarshal(data, &models); err == nil {
+		if err := json.Unmarshal(data, &models); err != nil {
 			return models, nil
 		}
 	}
@@ -725,6 +1085,7 @@ func (dp *DataProvider) scanSkillsDir(dir string, skills *[]Skill, seen map[stri
 			if err != nil {
 				continue
 			}
+			
 			name := skillID
 			description := ""
 			scanner := bufio.NewScanner(file)

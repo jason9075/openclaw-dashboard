@@ -30,6 +30,10 @@ function setupSSE() {
                 fetchAgents();
             } else if (data.type === 'skill_use') {
                 showSkillHint(data.payload);
+            } else if (data.type === 'agent_status') {
+                updateAgentUIStatus(data.payload);
+            } else if (data.type === 'reasoning_delta') {
+                updateLiveReasoning(data.payload);
             }
         } catch (err) {
             console.error('Failed to parse SSE event:', err);
@@ -39,6 +43,27 @@ function setupSSE() {
     eventSource.onerror = (err) => {
         console.warn('SSE connection lost, retrying...', err);
     };
+}
+
+function updateAgentUIStatus(payload) {
+    const { agent_id, status } = payload;
+    
+    // If status changed significantly, we might want to re-fetch/re-render the whole list
+    // to ensure sorting is correct (Thinking at top).
+    // For now, let's just refresh the whole list to keep it simple and accurate.
+    fetchAgents();
+}
+
+function updateLiveReasoning(payload) {
+    const { agent_id, delta } = payload;
+    const modal = document.getElementById('detail-modal');
+    if (modal && modal.style.display === 'flex' && modal.dataset.agentId === agent_id) {
+        const reasoningEl = document.getElementById('modal-reasoning');
+        if (reasoningEl) {
+            reasoningEl.textContent += delta;
+            reasoningEl.scrollTop = reasoningEl.scrollHeight;
+        }
+    }
 }
 
 function showSkillHint(payload) {
@@ -112,21 +137,33 @@ function renderAgents(data) {
         return;
     }
 
+    // Sort Personas: Thinking first
+    personas.sort((a, b) => {
+        if (a.status === 'thinking' && b.status !== 'thinking') return -1;
+        if (a.status !== 'thinking' && b.status === 'thinking') return 1;
+        return a.id.localeCompare(b.id);
+    });
+
     let html = '';
 
     // 1. Render Personas (Isolated Brains as per Docs)
     if (personas.length > 0) {
         html += '<h2 class="section-title">Agent Personas (Isolated Brains)</h2>';
         html += personas.map(p => {
+            const isThinking = p.status === 'thinking';
+            const isIdle = p.status === 'idle';
             return `
-            <div class="agent-persona-card ${p.is_default ? 'default-agent' : ''}" data-id="${p.id}">
+            <div class="agent-persona-card ${p.is_default ? 'default-agent' : ''} ${isThinking ? 'is-thinking' : ''} ${isIdle ? 'is-idle' : ''}" data-id="${p.id}">
                 <div class="persona-header">
                     <span class="persona-icon">${p.emoji || '🧠'}</span>
                     <div class="persona-info">
                         <h3>${p.name} ${p.is_default ? '<small>(Default)</small>' : ''}</h3>
                         <code>ID: ${p.id}</code>
                     </div>
-                    <span class="badge online">Active</span>
+                    <div class="header-right">
+                        <button class="btn-detail" onclick="openDetailModal('${p.id}')">Detail</button>
+                        <span class="badge ${isThinking ? 'thinking' : 'online'}">${isThinking ? 'Thinking' : (isIdle ? 'Idle' : 'Active')}</span>
+                    </div>
                 </div>
                 <div class="persona-paths">
                     <div class="path-item">
@@ -188,4 +225,136 @@ function renderAgents(data) {
     }
 
     listContainer.innerHTML = html;
+}
+
+async function openDetailModal(agentId) {
+    const modal = document.getElementById('detail-modal');
+    const select = document.getElementById('modal-session-select');
+    const conversationEl = document.getElementById('modal-conversation');
+    
+    if (!modal) return;
+
+    modal.dataset.agentId = agentId;
+    document.getElementById('modal-agent-name').textContent = agentId;
+    conversationEl.innerHTML = '<div class="loading">Loading sessions...</div>';
+    select.innerHTML = '';
+    
+    modal.style.display = 'flex';
+
+    try {
+        // 1. Fetch session list
+        const listResp = await fetch(`/api/session/list?agentId=${agentId}`);
+        if (!listResp.ok) throw new Error("Failed to load session list");
+        const sessions = await listResp.json();
+        
+        if (sessions.length === 0) {
+            conversationEl.innerHTML = '<div class="empty-state">No sessions found for this agent.</div>';
+            return;
+        }
+
+        // Sort: Newest first
+        sessions.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+
+        sessions.forEach((s, idx) => {
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            const date = new Date(s.updated_at).toLocaleString();
+            opt.textContent = `${s.id.substring(0, 8)}... (${date})`;
+            if (idx === 0) opt.selected = true;
+            select.appendChild(opt);
+        });
+
+        select.onchange = () => loadSessionDetails(agentId, select.value);
+
+        // 2. Load latest session details
+        await loadSessionDetails(agentId, sessions[0].id);
+
+    } catch (err) {
+        console.error(err);
+        conversationEl.innerHTML = `<div class="error">Error: ${err.message}</div>`;
+    }
+}
+
+async function loadSessionDetails(agentId, sessionId) {
+    const conversationEl = document.getElementById('modal-conversation');
+    conversationEl.innerHTML = '<div class="loading">Loading conversation...</div>';
+
+    try {
+        const resp = await fetch(`/api/session/details?agentId=${agentId}&sessionId=${sessionId}`);
+        if (!resp.ok) throw new Error("Failed to load session details");
+        const data = await resp.json();
+        
+        renderConversation(data.turns);
+    } catch (err) {
+        console.error(err);
+        conversationEl.innerHTML = `<div class="error">Error: ${err.message}</div>`;
+    }
+}
+
+function renderConversation(turns) {
+    const conversationEl = document.getElementById('modal-conversation');
+    
+    if (!turns || turns.length === 0) {
+        conversationEl.innerHTML = '<div class="empty-state">Empty conversation.</div>';
+        return;
+    }
+
+    conversationEl.innerHTML = turns.map((turn, idx) => `
+        <div class="conversation-turn" id="turn-${idx}">
+            <div class="detail-section">
+                <label>User Message</label>
+                <div class="message-box user">${turn.user_message || '(No message)'}</div>
+            </div>
+            ${turn.reasoning ? `
+            <div class="detail-section">
+                <label>LLM Reasoning</label>
+                <div class="message-box reasoning" id="reasoning-${idx}">${turn.reasoning}</div>
+            </div>
+            ` : `<div id="reasoning-${idx}"></div>`}
+            <div class="detail-section">
+                <label>OpenClaw Response</label>
+                <div class="message-box assistant">${turn.final_text || '...'}</div>
+            </div>
+            ${turn.input_tokens > 0 || turn.cost > 0 ? `
+            <div class="turn-usage">
+                <span>Tokens: <strong>${(turn.input_tokens + turn.output_tokens).toLocaleString()}</strong> (In: ${turn.input_tokens.toLocaleString()}, Out: ${turn.output_tokens.toLocaleString()})</span>
+                <span>Cost: <strong>$${turn.cost.toFixed(4)}</strong></span>
+            </div>
+            ` : ''}
+        </div>
+    `).join('<hr class="turn-divider">');
+}
+
+function updateLiveReasoning(payload) {
+    const { agent_id, delta } = payload;
+    const modal = document.getElementById('detail-modal');
+    if (modal && modal.style.display === 'flex' && modal.dataset.agentId === agent_id) {
+        // Find the LATEST reasoning box in the modal
+        const reasoningBoxes = document.querySelectorAll('.message-box.reasoning');
+        let latestReasoning = reasoningBoxes[reasoningBoxes.length - 1];
+        
+        if (!latestReasoning) {
+            // If no reasoning box exists, we might need to create one for the active turn
+            // For now, let's just append to the very last element of the conversation
+            const turns = document.querySelectorAll('.conversation-turn');
+            const lastTurn = turns[turns.length - 1];
+            if (lastTurn) {
+                const target = lastTurn.querySelector('[id^="reasoning-"]');
+                if (target && !target.classList.contains('reasoning')) {
+                    target.className = 'message-box reasoning';
+                    latestReasoning = target;
+                }
+            }
+        }
+
+        if (latestReasoning) {
+            latestReasoning.textContent += delta;
+            latestReasoning.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }
+    }
+}
+
+function closeDetailModal() {
+    const modal = document.getElementById('detail-modal');
+    if (modal) modal.style.display = 'none';
 }

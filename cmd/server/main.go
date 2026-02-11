@@ -55,11 +55,12 @@ func main() {
 	broadcaster := data.NewBroadcaster()
 	go broadcaster.Run()
 
-	// Start Transcript Watcher for real-time Skill usage detection
+	// Start Watchers
 	if dp != nil {
 		if err := dp.WatchTranscripts(broadcaster); err != nil {
 			logger.Warn("failed to start transcript watcher", "error", err)
 		}
+		dp.WatchRawStream(broadcaster)
 	}
 
 	// Setup UI file server
@@ -75,6 +76,8 @@ func main() {
 	mux.HandleFunc("/api/status", handleStatus(logger, dp))
 	mux.HandleFunc("/api/events", handleEvents(broadcaster))
 	mux.HandleFunc("/api/hooks/receive", handleHookReceive(logger, broadcaster))
+	mux.HandleFunc("/api/session/list", handleSessionList(logger, dp))
+	mux.HandleFunc("/api/session/details", handleSessionDetails(logger, dp))
 
 	srv := &http.Server{
 		Addr:    ":" + port,
@@ -234,5 +237,45 @@ func handleHookReceive(logger *slog.Logger, b *data.Broadcaster) http.HandlerFun
 
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
+	}
+}
+
+func handleSessionList(logger *slog.Logger, dp *data.DataProvider) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		agentID := r.URL.Query().Get("agentId")
+		if agentID == "" {
+			http.Error(w, "Missing agentId", http.StatusBadRequest)
+			return
+		}
+
+		sessions, err := dp.GetSessionsForAgent(agentID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(sessions)
+	}
+}
+
+func handleSessionDetails(logger *slog.Logger, dp *data.DataProvider) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		agentID := r.URL.Query().Get("agentId")
+		sessionID := r.URL.Query().Get("sessionId")
+		
+		if agentID == "" || sessionID == "" {
+			http.Error(w, "Missing agentId or sessionId", http.StatusBadRequest)
+			return
+		}
+
+		details, err := dp.GetSessionDetails(agentID, sessionID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(details)
 	}
 }

@@ -915,3 +915,207 @@ button {
     font-size: 0.85rem;
     text-transform: uppercase;
 }
+
+/* Agent Card Enhancements */
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.btn-detail {
+    background: var(--nord3);
+    color: var(--nord6);
+    border: 1px solid var(--nord2);
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: all 0.2s;
+}
+
+.btn-detail:hover {
+    background: var(--nord8);
+    color: var(--nord0);
+}
+
+.badge.thinking {
+    background: rgba(136, 192, 208, 0.2);
+    color: var(--nord8);
+    position: relative;
+    padding-left: 18px;
+}
+
+.badge.thinking::before {
+    content: '';
+    position: absolute;
+    left: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 6px;
+    height: 6px;
+    background: var(--nord8);
+    border-radius: 50%;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: translateY(-50%) scale(1); opacity: 1; }
+    50% { transform: translateY(-50%) scale(1.5); opacity: 0.5; }
+    100% { transform: translateY(-50%) scale(1); opacity: 1; }
+}
+
+.agent-persona-card.is-thinking {
+    border: 1px solid var(--nord8);
+    box-shadow: 0 0 10px rgba(136, 192, 208, 0.3);
+}
+
+.agent-persona-card.is-idle {
+    opacity: 0.6;
+    filter: grayscale(0.5);
+    background: var(--nord0);
+}
+
+/* Modal Styles */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(46, 52, 64, 0.85);
+    backdrop-filter: blur(4px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 3000;
+}
+
+.modal-content {
+    background: var(--nord1);
+    width: 90%;
+    max-width: 900px;
+    height: 90vh;
+    border-radius: 12px;
+    border: 1px solid var(--nord3);
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    animation: modal-slide-up 0.3s ease-out;
+}
+
+.modal-header {
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: 1px solid var(--nord2);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.header-main {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.nord-select {
+    background: var(--nord0);
+    color: var(--nord6);
+    border: 1px solid var(--nord3);
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    outline: none;
+}
+
+.nord-select:focus {
+    border-color: var(--nord8);
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    color: var(--nord8);
+}
+
+.modal-body {
+    padding: var(--space-lg);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+    flex: 1;
+}
+
+.conversation-turn {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.turn-divider {
+    border: 0;
+    border-top: 2px dashed var(--nord2);
+    margin: 10px 0;
+    width: 100%;
+}
+
+.detail-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.detail-section label {
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: var(--nord9);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.message-box {
+    background: var(--nord0);
+    padding: var(--space-md);
+    border-radius: 6px;
+    font-size: 0.95rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    border: 1px solid var(--nord2);
+}
+
+.message-box.user {
+    border-left: 4px solid var(--nord3);
+    color: var(--nord4);
+}
+
+.message-box.reasoning {
+    border-left: 4px solid var(--nord8);
+    color: var(--nord8);
+    font-style: italic;
+    background: rgba(136, 192, 208, 0.05);
+}
+
+.message-box.assistant {
+    border-left: 4px solid var(--nord14);
+    color: var(--nord6);
+}
+
+.turn-usage {
+    display: flex;
+    justify-content: flex-end;
+    gap: 20px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    padding-top: 8px;
+}
+
+.turn-usage strong {
+    color: var(--nord8);
+}
+
+.loading, .empty-state {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-muted);
+}

@@ -144,6 +144,22 @@
         </main>
     </div>
 
+    <!-- Detail Modal -->
+    <div id="detail-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="header-main">
+                    <h2>Agent Detail: <span id="modal-agent-name"></span></h2>
+                    <select id="modal-session-select" class="nord-select"></select>
+                </div>
+                <button onclick="closeDetailModal()" class="close-btn">&times;</button>
+            </div>
+            <div id="modal-conversation" class="modal-body">
+                <!-- Conversation turns will be injected here -->
+            </div>
+        </div>
+    </div>
+
     <script src="agent_viz.js"></script>
 </body>
 
